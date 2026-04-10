@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}SLA-Bericht – FoxEx Network Monitor{% endblock %}
+
+{% block head %}
+<style>
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #fff !important; color: #000 !important; }
+    .card { border: 1px solid #ccc !important; background: #fff !important; }
+    .table { color: #000 !important; }
+    th { background: #eee !important; color: #000 !important; }
+    .badge { border: 1px solid #999; }
+  }
+  .uptime-high   { color: #34d399; font-weight: 600; }
+  .uptime-medium { color: #fbbf24; font-weight: 600; }
+  .uptime-low    { color: #f87171; font-weight: 600; }
+  .sla-table th  { white-space: nowrap; font-size: .82rem; }
+  .sla-table td  { font-size: .85rem; vertical-align: middle; }
+  .sla-bar-wrap  { min-width: 80px; }
+  .sla-bar       { height: 6px; border-radius: 3px; background: #222; }
+  .sla-bar-fill  { height: 6px; border-radius: 3px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-3">
+
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-3 no-print">
+    <h4 class="mb-0"><i class="bi bi-graph-up-arrow text-info me-2"></i>Verfügbarkeitsberichte (SLA)</h4>
+    <div class="d-flex gap-2 align-items-center">
+      <label class="text-muted small me-1 mb-0">Zeitraum:</label>
+      <select id="sel-days" class="form-select form-select-sm" style="width:auto" onchange="loadReport()">
+        <option value="1">Letzte 24 Stunden</option>
+        <option value="7">Letzte 7 Tage</option>
+        <option value="14">Letzte 14 Tage</option>
+        <option value="30" selected>Letzte 30 Tage</option>
+        <option value="60">Letzte 60 Tage</option>
+        <option value="90">Letzte 90 Tage</option>
+      </select>
+      <button class="btn btn-sm btn-outline-secondary" onclick="window.print()">
+        <i class="bi bi-printer"></i> Drucken / PDF
+      </button>
+    </div>
+  </div>
+
+  <!-- Summary cards -->
+  <div class="row g-3 mb-4" id="summary-cards">
+    <div class="col-sm-6 col-lg-3">
+      <div class="card bg-dark border-secondary text-center py-2">
+        <div class="text-muted small">Geräte überwacht</div>
+        <div class="fs-4 fw-bold text-light" id="card-devices">–</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="card bg-dark border-secondary text-center py-2">
+        <div class="text-muted small">Ø Verfügbarkeit Geräte</div>
+        <div class="fs-4 fw-bold" id="card-avg-uptime">–</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="card bg-dark border-secondary text-center py-2">
+        <div class="text-muted small">URL-Monitore</div>
+        <div class="fs-4 fw-bold text-light" id="card-monitors">–</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="card bg-dark border-secondary text-center py-2">
+        <div class="text-muted small">Ø Verfügbarkeit URLs</div>
+        <div class="fs-4 fw-bold" id="card-avg-url-uptime">–</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Devices table -->
+  <div class="card bg-dark border-secondary mb-4">
+    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-hdd-network me-2 text-info"></i>Geräte (ICMP)</span>
+      <a id="btn-csv-devices" href="#" class="btn btn-sm btn-outline-secondary no-print">
+        <i class="bi bi-filetype-csv"></i> CSV Export
+      </a>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover sla-table mb-0">
+          <thead>
+            <tr>
+              <th>Gerät</th>
+              <th>IP-Adresse</th>
+              <th>Verfügbarkeit</th>
+              <th>Ausfallzeit</th>
+              <th>Ø Latenz</th>
+              <th>Ø Paketverlust</th>
+              <th>Prüfungen</th>
+              <th>Letzter Check</th>
+            </tr>
+          </thead>
+          <tbody id="devices-tbody">
+            <tr><td colspan="8" class="text-center text-muted py-4">Lade Daten…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- URL Monitors table -->
+  <div class="card bg-dark border-secondary mb-4">
+    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-globe2 me-2 text-info"></i>URL-Monitore (DNS)</span>
+      <a id="btn-csv-monitors" href="#" class="btn btn-sm btn-outline-secondary no-print">
+        <i class="bi bi-filetype-csv"></i> CSV Export
+      </a>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover sla-table mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>URL</th>
+              <th>Verfügbarkeit</th>
+              <th>Ausfallzeit</th>
+              <th>Ø Antwortzeit</th>
+              <th>Prüfungen</th>
+              <th>Letzter Check</th>
+            </tr>
+          </thead>
+          <tbody id="monitors-tbody">
+            <tr><td colspan="7" class="text-center text-muted py-4">Lade Daten…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Print footer -->
+  <div class="text-muted small text-end d-none d-print-block">
+    FoxEx Network Monitor – Bericht erstellt: <span id="print-ts"></span>
+  </div>
+
+</div>
+
+<script>
+let _reportData = null;
+
+function uptimeClass(pct) {
+  if (pct === null || pct === undefined) return '';
+  if (pct >= 99)   return 'uptime-high';
+  if (pct >= 95)   return 'uptime-medium';
+  return 'uptime-low';
+}
+
+function uptimeBadge(pct) {
+  if (pct === null || pct === undefined) return '<span class="text-muted">–</span>';
+  const cls = pct >= 99 ? 'success' : pct >= 95 ? 'warning' : 'danger';
+  const fill = Math.max(0, Math.min(100, pct));
+  return `
+    <div class="d-flex align-items-center gap-2">
+      <span class="${uptimeClass(pct)}">${pct.toFixed(2)} %</span>
+      <div class="sla-bar-wrap">
+        <div class="sla-bar">
+          <div class="sla-bar-fill bg-${cls}" style="width:${fill}%"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function fmtDowntime(min) {
+  if (min === null || min === undefined) return '–';
+  if (min < 60)   return `${min} min`;
+  if (min < 1440) return `${(min/60).toFixed(1)} h`;
+  return `${(min/1440).toFixed(1)} d`;
+}
+
+function fmtTs(ts) {
+  if (!ts) return '–';
+  const d = new Date(ts + 'Z');
+  return d.toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'});
+}
+
+function renderDevices(data) {
+  const tb = document.getElementById('devices-tbody');
+  if (!data.length) {
+    tb.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Keine Daten vorhanden.</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.map(d => `
+    <tr>
+      <td><a href="/devices/${d.device_id}" class="text-light text-decoration-none">${d.name}</a></td>
+      <td class="text-muted">${d.ip_address}</td>
+      <td>${uptimeBadge(d.uptime_pct)}</td>
+      <td>${fmtDowntime(d.downtime_min)}</td>
+      <td>${d.avg_latency_ms !== null ? d.avg_latency_ms + ' ms' : '–'}</td>
+      <td>${d.avg_packet_loss_pct !== null ? d.avg_packet_loss_pct + ' %' : '–'}</td>
+      <td class="text-muted">${d.total_checks}</td>
+      <td class="text-muted">${fmtTs(d.last_check)}</td>
+    </tr>`).join('');
+}
+
+function renderMonitors(data) {
+  const tb = document.getElementById('monitors-tbody');
+  if (!data.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Keine Daten vorhanden.</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.map(m => `
+    <tr>
+      <td>${m.name}</td>
+      <td class="text-muted" style="font-size:.8rem">${m.url}</td>
+      <td>${uptimeBadge(m.uptime_pct)}</td>
+      <td>${fmtDowntime(m.downtime_min)}</td>
+      <td>${m.avg_response_ms !== null ? m.avg_response_ms + ' ms' : '–'}</td>
+      <td class="text-muted">${m.total_checks}</td>
+      <td class="text-muted">${fmtTs(m.last_check)}</td>
+    </tr>`).join('');
+}
+
+function renderSummary(data) {
+  const devs  = data.devices.filter(d => d.total_checks > 0);
+  const mons  = data.monitors.filter(m => m.total_checks > 0);
+  const avgDev = devs.length
+    ? devs.reduce((s, d) => s + (d.uptime_pct ?? 0), 0) / devs.length
+    : null;
+  const avgMon = mons.length
+    ? mons.reduce((s, m) => s + (m.uptime_pct ?? 0), 0) / mons.length
+    : null;
+
+  document.getElementById('card-devices').textContent = data.devices.length;
+  document.getElementById('card-monitors').textContent = data.monitors.length;
+
+  const avgDevEl = document.getElementById('card-avg-uptime');
+  avgDevEl.textContent = avgDev !== null ? avgDev.toFixed(2) + ' %' : '–';
+  avgDevEl.className   = 'fs-4 fw-bold ' + uptimeClass(avgDev);
+
+  const avgMonEl = document.getElementById('card-avg-url-uptime');
+  avgMonEl.textContent = avgMon !== null ? avgMon.toFixed(2) + ' %' : '–';
+  avgMonEl.className   = 'fs-4 fw-bold ' + uptimeClass(avgMon);
+}
+
+async function loadReport() {
+  const days = document.getElementById('sel-days').value;
+  document.getElementById('btn-csv-devices').href  = `/api/reports/sla/export/devices.csv?days=${days}`;
+  document.getElementById('btn-csv-monitors').href = `/api/reports/sla/export/monitors.csv?days=${days}`;
+
+  const r = await fetch(`/api/reports/sla?days=${days}`);
+  if (!r.ok) return;
+  _reportData = await r.json();
+
+  renderSummary(_reportData);
+  renderDevices(_reportData.devices);
+  renderMonitors(_reportData.monitors);
+}
+
+document.getElementById('print-ts').textContent = new Date().toLocaleString('de-DE');
+loadReport();
+</script>
+{% endblock %}

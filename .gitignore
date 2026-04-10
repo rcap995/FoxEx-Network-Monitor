@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+venv/
+env/
+.env/
+
+# Database (contains device credentials and user data)
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Environment variables (may contain secrets)
+.env
+.env.*
+!.env.example
+
+# Uploaded files (user-specific content)
+uploads/icons/*.jpg
+uploads/icons/*.jpeg
+uploads/icons/*.png
+uploads/icons/*.gif
+uploads/icons/*.webp
+!uploads/icons/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

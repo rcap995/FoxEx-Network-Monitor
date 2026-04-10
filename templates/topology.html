@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Topologie – FoxEx Network Monitor{% endblock %}
+{% block main_class %}p-0{% endblock %}
+
+{% block content %}
+<div class="topology-layout">
+
+  <!-- Left Palette -->
+  <div class="topo-sidebar" id="topo-sidebar-left" style="width:220px;min-width:220px">
+
+    <!-- Devices Section -->
+    <div class="topo-sidebar-header">
+      <i class="bi bi-hdd-network text-warning"></i> Gerätepalette
+    </div>
+    <div class="topo-palette" id="device-palette" style="max-height:40vh">
+      {% for d in devices %}
+      <div class="palette-item" draggable="true"
+           data-device-id="{{ d.id }}" data-device-name="{{ d.name }}"
+           data-device-ip="{{ d.ip_address }}" data-device-type="{{ d.device_type }}"
+           data-device-status="{{ d.status }}" data-icon-name="{{ d.icon_name or '' }}"
+           title="{{ d.ip_address }}">
+        {% if d.icon_name and d.icon_name.startswith('custom_') %}
+          <img src="/uploads/icons/{{ d.icon_name }}" class="palette-icon" onerror="this.src='/static/icons/generic.svg'">
+        {% else %}
+          <img src="/static/icons/{{ d.icon_name or d.device_type }}.svg" class="palette-icon" onerror="this.src='/static/icons/generic.svg'">
+        {% endif %}
+        <span class="palette-label">{{ d.name }}</span>
+        <span class="status-dot status-{{ d.status }}"></span>
+      </div>
+      {% else %}
+      <p class="text-muted small p-2">Keine Geräte vorhanden.<br><a href="/devices">Gerät hinzufügen</a></p>
+      {% endfor %}
+    </div>
+
+    <!-- Shapes Section -->
+    <div class="topo-sidebar-header mt-1">
+      <i class="bi bi-shapes text-warning"></i> Formen & Text
+    </div>
+    <div class="topo-palette" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:6px">
+      <div class="shape-palette-item" draggable="true" data-shape="rect" title="Rechteck">
+        <i class="bi bi-square"></i> Rechteck
+      </div>
+      <div class="shape-palette-item" draggable="true" data-shape="roundrect" title="Abgerundetes Rechteck">
+        <i class="bi bi-app"></i> Gerundet
+      </div>
+      <div class="shape-palette-item" draggable="true" data-shape="circle" title="Ellipse">
+        <i class="bi bi-circle"></i> Ellipse
+      </div>
+      <div class="shape-palette-item" draggable="true" data-shape="diamond" title="Raute">
+        <i class="bi bi-diamond"></i> Raute
+      </div>
+      <div class="shape-palette-item" draggable="true" data-shape="cloud" title="Cloud / Wolke">
+        <i class="bi bi-clouds"></i> Cloud
+      </div>
+      <div class="shape-palette-item" draggable="true" data-shape="arrow" title="Pfeil (gerade)">
+        <i class="bi bi-arrow-right"></i> Pfeil
+      </div>
+      <div class="shape-palette-item" draggable="true" data-shape="arrow-curved" title="Pfeil (gebogen)">
+        <i class="bi bi-arrow-return-right"></i> Bogen
+      </div>
+    </div>
+
+    <!-- Shape Style Panel -->
+    <div class="px-2 pb-2" id="shape-style-panel" style="display:none">
+      <hr class="border-secondary my-1">
+      <div class="small text-muted mb-1">Ausgewählte Form:</div>
+      <div class="d-flex gap-1 align-items-center mb-1">
+        <label class="small text-muted" style="width:50px">Füllung</label>
+        <input type="color" id="shape-fill-picker" class="form-control form-control-sm p-0 border-secondary"
+               style="width:36px;height:24px;cursor:pointer" onchange="applyShapeColor()">
+        <div class="form-check form-switch mb-0 ms-1">
+          <input class="form-check-input" type="checkbox" id="shape-fill-enabled" checked
+                 onchange="applyShapeColor()" title="Füllung an/aus">
+        </div>
+      </div>
+      <div class="d-flex gap-1 align-items-center mb-1">
+        <label class="small text-muted" style="width:50px">Rahmen</label>
+        <input type="color" id="shape-stroke-picker" class="form-control form-control-sm p-0 border-secondary"
+               style="width:36px;height:24px;cursor:pointer" onchange="applyShapeColor()">
+      </div>
+      <div class="d-flex gap-1 align-items-center mb-1">
+        <label class="small text-muted" style="width:50px">Text</label>
+        <input type="color" id="shape-text-color-picker" class="form-control form-control-sm p-0 border-secondary"
+               style="width:36px;height:24px;cursor:pointer" onchange="applyShapeColor()">
+        <input type="number" id="shape-font-size" class="form-control form-control-sm border-secondary bg-dark text-light"
+               style="width:52px;font-size:.75rem" value="14" min="8" max="72" onchange="applyShapeColor()">
+      </div>
+      <div class="d-flex gap-1 align-items-center mb-1">
+        <label class="small text-muted" style="width:50px">Opazität</label>
+        <input type="range" id="shape-opacity" class="form-range flex-grow-1" min="5" max="100" value="100"
+               oninput="applyShapeColor(); document.getElementById('shape-opacity-val').textContent=this.value+'%'">
+        <span id="shape-opacity-val" class="small text-muted" style="width:34px;text-align:right">100%</span>
+      </div>
+      <button class="btn btn-sm btn-outline-danger w-100 mt-1" onclick="deleteSelected()">
+        <i class="bi bi-trash"></i> Löschen
+      </button>
+    </div>
+
+    <!-- Edge Style Panel -->
+    <div class="px-2 pb-2" id="edge-style-panel" style="display:none">
+      <hr class="border-secondary my-1">
+      <div class="small text-muted mb-1">Verbindungslinie:</div>
+      <div class="d-flex gap-1 align-items-center mb-1">
+        <label class="small text-muted" style="width:50px">Farbe</label>
+        <input type="color" id="edge-color-picker" class="form-control form-control-sm p-0 border-secondary"
+               style="width:36px;height:24px;cursor:pointer" onchange="applyEdgeStyle()">
+      </div>
+      <div class="d-flex gap-1 align-items-center mb-1">
+        <label class="small text-muted" style="width:50px">Stil</label>
+        <select id="edge-dash-select" class="form-select form-select-sm border-secondary bg-dark text-light"
+                style="font-size:.75rem" onchange="applyEdgeStyle()">
+          <option value="solid">Durchgezogen</option>
+          <option value="dashed">Gestrichelt</option>
+          <option value="dotted">Gepunktet</option>
+        </select>
+      </div>
+      <div class="d-flex gap-1 align-items-center mb-1">
+        <label class="small text-muted" style="width:50px">Breite</label>
+        <input type="number" id="edge-width-input" class="form-control form-control-sm border-secondary bg-dark text-light"
+               style="width:52px;font-size:.75rem" value="2" min="1" max="8" onchange="applyEdgeStyle()">
+        <span class="small text-muted">px</span>
+      </div>
+      <button class="btn btn-sm btn-outline-danger w-100 mt-1" onclick="deleteSelected()">
+        <i class="bi bi-trash"></i> Löschen
+      </button>
+    </div>
+  </div>
+
+  <!-- Canvas Area -->
+  <div class="topo-canvas-wrapper">
+    <div class="topo-toolbar">
+      <button class="topo-btn" id="btn-select" title="Auswählen" onclick="setMode('select')" data-active="true">
+        <i class="bi bi-cursor"></i>
+      </button>
+      <button class="topo-btn" id="btn-pan" title="Karte verschieben (Hand)" onclick="setMode('pan')">
+        <i class="bi bi-hand-index"></i>
+      </button>
+      <button class="topo-btn" id="btn-connect" title="Geräte verbinden" onclick="setMode('connect')">
+        <i class="bi bi-bezier2"></i>
+      </button>
+      <button class="topo-btn" id="btn-text" title="Text platzieren" onclick="setMode('text')">
+        <i class="bi bi-fonts"></i>
+      </button>
+      <button class="topo-btn" id="btn-delete-sel" title="Auswahl löschen" onclick="deleteSelected()">
+        <i class="bi bi-trash"></i>
+      </button>
+      <div class="topo-sep"></div>
+      <button class="topo-btn" title="Verkleinern" onclick="zoomOut()"><i class="bi bi-zoom-out"></i></button>
+      <button class="topo-btn" id="zoom-label" style="min-width:50px;cursor:default">100%</button>
+      <button class="topo-btn" title="Vergrößern" onclick="zoomIn()"><i class="bi bi-zoom-in"></i></button>
+      <button class="topo-btn" title="Zurücksetzen" onclick="resetZoom()"><i class="bi bi-arrows-fullscreen"></i></button>
+      <div class="topo-sep"></div>
+      <button class="topo-btn" id="btn-snap" title="Raster ein/aus (40 px)" onclick="toggleSnap()">
+        <i class="bi bi-grid-3x3"></i>
+      </button>
+      <div class="topo-sep"></div>
+      <button class="topo-btn text-warning" onclick="saveTopology()" title="Speichern">
+        <i class="bi bi-floppy"></i> Speichern
+      </button>
+      <span class="topo-save-msg" id="save-msg"></span>
+      <div class="topo-sep"></div>
+      <span class="small text-muted" id="topo-mode-label">Modus: Auswählen</span>
+    </div>
+    <div id="multi-action-bar" class="topo-multi-bar" style="display:none">
+      <span id="multi-sel-count" class="small text-muted"></span>
+      <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteMultiSelected()">
+        <i class="bi bi-trash"></i> Löschen
+      </button>
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="btn-multi-copy" onclick="copyMultiSelected()" style="display:none">
+        <i class="bi bi-copy"></i> Kopieren
+      </button>
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="clearMultiSelection()">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div id="topology-canvas"></div>
+  </div>
+
+  <!-- Right Detail Panel -->
+  <div class="topo-sidebar topo-sidebar-right" id="detail-panel" style="display:none">
+    <div class="topo-sidebar-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-info-circle text-warning"></i> Gerätdetails</span>
+      <button class="btn btn-sm btn-link text-muted p-0" onclick="closeDetailPanel()">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div id="detail-content" class="p-2"></div>
+  </div>
+</div>
+
+<!-- Hidden textarea for inline text editing -->
+<textarea id="topo-text-editor" style="
+  position:fixed; display:none; z-index:9999;
+  background:#1a2030; color:#d0d4df; border:2px solid #ffc107;
+  border-radius:4px; padding:4px 8px; resize:none; outline:none;
+  font-family:'Segoe UI',sans-serif; font-size:14px; min-width:100px;
+"></textarea>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/konva@9.3.6/konva.min.js"></script>
+<script src="/static/js/topology.js"></script>
+{% endblock %}

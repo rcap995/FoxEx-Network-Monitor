@@ -1,0 +1,1332 @@
+{% extends "base.html" %}
+{% block title %}{{ device.name }} – FoxEx Network Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+  <a href="/devices" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  {% if device.icon_name and device.icon_name.startswith('custom_') %}
+    <img src="/uploads/icons/{{ device.icon_name }}" width="40" height="40" class="device-icon" id="device-icon-img">
+  {% else %}
+    <img src="/static/icons/{{ device.icon_name or device.device_type }}.svg" width="40" height="40" class="device-icon" id="device-icon-img" onerror="this.src='/static/icons/generic.svg'">
+  {% endif %}
+  <div>
+    <h2 class="mb-0">{{ device.name }}</h2>
+    <code class="text-muted">{{ device.ip_address }}</code>
+  </div>
+  <div class="ms-auto d-flex gap-2 flex-wrap">
+    <span id="status-badge" class="badge fs-6
+      {% if device.status == 'online' %}bg-success
+      {% elif device.status == 'offline' %}bg-danger
+      {% else %}bg-secondary{% endif %}">
+      {{ device.status | capitalize }}
+    </span>
+    <button class="btn btn-outline-info btn-sm" onclick="manualPing()">
+      <i class="bi bi-broadcast"></i> Ping
+    </button>
+    {% if device.snmp_enabled %}
+    <button class="btn btn-outline-secondary btn-sm" onclick="checkMethod('snmp', this)" title="SNMP jetzt abfragen">
+      <i class="bi bi-diagram-3"></i> SNMP
+    </button>
+    {% endif %}
+    {% if device.http_enabled %}
+    <button class="btn btn-outline-secondary btn-sm" onclick="checkMethod('http', this)" title="HTTP jetzt prüfen">
+      <i class="bi bi-globe"></i> HTTP
+    </button>
+    {% endif %}
+    {% if device.tcp_enabled %}
+    <button class="btn btn-outline-secondary btn-sm" onclick="checkMethod('tcp', this)" title="TCP jetzt prüfen">
+      <i class="bi bi-plug"></i> TCP
+    </button>
+    {% endif %}
+    {% if device.ssh_enabled %}
+    <button class="btn btn-outline-secondary btn-sm" onclick="checkMethod('ssh', this)" title="SSH jetzt prüfen">
+      <i class="bi bi-terminal"></i> SSH
+    </button>
+    {% endif %}
+    {% if device.wmi_enabled %}
+    <button class="btn btn-outline-secondary btn-sm" onclick="checkMethod('wmi', this)" title="WMI jetzt abfragen">
+      <i class="bi bi-windows"></i> WMI
+    </button>
+    {% endif %}
+    {% if device.syslog_enabled %}
+    <button class="btn btn-outline-secondary btn-sm" onclick="loadSyslog()" title="Syslog-Nachrichten neu laden">
+      <i class="bi bi-journal-text"></i> Syslog
+    </button>
+    {% endif %}
+    <button class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editDeviceModal">
+      <i class="bi bi-pencil"></i> Bearbeiten
+    </button>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Left column -->
+  <div class="col-lg-4">
+
+    <!-- Device Info -->
+    <div class="card bg-card border-0 mb-3">
+      <div class="card-header bg-transparent border-secondary">
+        <i class="bi bi-info-circle text-warning"></i> Geräteinformationen
+      </div>
+      <div class="card-body">
+        <table class="table table-dark table-sm mb-0">
+          <tbody>
+            <tr><td class="text-muted" style="width:38%">Typ</td><td>
+              {% for k,l in device_types %}{% if k == device.device_type %}{{ l }}{% endif %}{% endfor %}
+            </td></tr>
+
+            {# ── ICMP ── #}
+            <tr>
+              <td class="text-muted">ICMP</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span id="info-icmp-val">
+                    {% if device.icmp_enabled %}
+                      <span class="badge bg-success">Aktiv</span> <small class="text-muted">{{ device.icmp_interval }}s</small>
+                    {% else %}<span class="badge bg-secondary">Inaktiv</span>{% endif %}
+                  </span>
+                  {% if device.icmp_enabled %}
+                  <button class="btn btn-outline-info btn-xs-inline" onclick="inlineCheck('icmp', this)" title="Jetzt prüfen">
+                    <i class="bi bi-play-fill"></i>
+                  </button>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+
+            {# ── SNMP ── #}
+            <tr>
+              <td class="text-muted">SNMP</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span id="info-snmp-val">
+                    {% if device.snmp_enabled %}
+                      <span class="badge bg-info text-dark">Aktiv</span> <small class="text-muted">:{{ device.snmp_port }} / {{ device.snmp_interval }}s</small>
+                    {% else %}<span class="badge bg-secondary">Inaktiv</span>{% endif %}
+                  </span>
+                  {% if device.snmp_enabled %}
+                  <button class="btn btn-outline-secondary btn-xs-inline" onclick="inlineCheck('snmp', this)" title="Jetzt abfragen">
+                    <i class="bi bi-play-fill"></i>
+                  </button>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+
+            {% if device.snmp_enabled %}
+            <tr><td class="text-muted ps-3"><small>Community</small></td><td><code class="small">{{ device.snmp_community }}</code></td></tr>
+            {% endif %}
+
+            {# ── TCP ── #}
+            {% if device.tcp_enabled %}
+            <tr>
+              <td class="text-muted">TCP</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span id="info-tcp-val">
+                    {% set tcp_m = latest_metrics.get('tcp_reachable') %}
+                    {% if tcp_m is none %}<span class="badge bg-secondary">Ausstehend</span>
+                    {% elif tcp_m.value_str == 'open' %}<span class="badge bg-success">Open</span> <small class="text-muted">{{ tcp_m.value_float|round(1) if tcp_m.value_float else '' }} ms</small>
+                    {% else %}<span class="badge bg-danger">Geschlossen</span>
+                    {% endif %}
+                    <small class="text-muted">:{{ device.tcp_port }}</small>
+                  </span>
+                  <button class="btn btn-outline-secondary btn-xs-inline" onclick="inlineCheck('tcp', this)" title="Jetzt prüfen">
+                    <i class="bi bi-play-fill"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+
+            {# ── HTTP ── #}
+            {% if device.http_enabled %}
+            <tr>
+              <td class="text-muted">HTTP</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span id="info-http-val">
+                    {% set http_m = latest_metrics.get('http_status_code') %}
+                    {% if http_m is none %}<span class="badge bg-secondary">Ausstehend</span>
+                    {% elif http_m.value_float %}<span class="badge bg-success">{{ http_m.value_float|int }}</span> <small class="text-muted">{{ (latest_metrics.get('http_response_ms') or {}).get('value_float', '') | round(1) if (latest_metrics.get('http_response_ms') or {}).get('value_float') else '' }} ms</small>
+                    {% else %}<span class="badge bg-danger">Fehler</span>
+                    {% endif %}
+                    <small class="text-muted text-break ms-1" style="max-width:110px;display:inline-block;vertical-align:middle">{{ device.http_url }}</small>
+                  </span>
+                  <button class="btn btn-outline-secondary btn-xs-inline" onclick="inlineCheck('http', this)" title="Jetzt prüfen">
+                    <i class="bi bi-play-fill"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+
+            {# ── SSH ── #}
+            {% if device.ssh_enabled %}
+            <tr>
+              <td class="text-muted">SSH</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span id="info-ssh-val">
+                    {% set ssh_m = latest_metrics.get('ssh_reachable') %}
+                    {% if ssh_m is none %}<span class="badge bg-secondary">Ausstehend</span>
+                    {% elif ssh_m.value_float == 1.0 %}<span class="badge bg-success">Open</span> <small class="text-muted">{{ ssh_m.value_str or '' }}</small>
+                    {% else %}<span class="badge bg-danger">Geschlossen</span>
+                    {% endif %}
+                    <small class="text-muted">:{{ device.ssh_port or 22 }}</small>
+                  </span>
+                  <button class="btn btn-outline-secondary btn-xs-inline" onclick="inlineCheck('ssh', this)" title="Jetzt prüfen">
+                    <i class="bi bi-play-fill"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+
+            {# ── WMI ── #}
+            {% if device.wmi_enabled %}
+            <tr>
+              <td class="text-muted">WMI</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span id="info-wmi-val"><span class="badge bg-success">Aktiv</span> <small class="text-muted">{{ device.wmi_username or 'lokal' }}</small></span>
+                  <button class="btn btn-outline-secondary btn-xs-inline" onclick="inlineCheck('wmi', this)" title="Jetzt abfragen">
+                    <i class="bi bi-play-fill"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% endif %}
+
+            {% if device.netflow_enabled %}
+            <tr><td class="text-muted">NetFlow</td><td><span class="badge bg-info text-dark">UDP :2055</span></td></tr>
+            {% endif %}
+            {% if device.sflow_enabled %}
+            <tr><td class="text-muted">sFlow</td><td><span class="badge bg-info text-dark">UDP :6343</span></td></tr>
+            {% endif %}
+            {% if device.syslog_enabled %}
+            <tr><td class="text-muted">Syslog</td><td><span class="badge bg-warning text-dark">UDP :{{ device.syslog_port or 514 }}</span></td></tr>
+            {% endif %}
+            <tr><td class="text-muted">Zuletzt gesehen</td><td id="last-seen">{{ device.last_seen | dt }}</td></tr>
+            <tr><td class="text-muted">Erstellt</td><td>{{ device.created_at | date }}</td></tr>
+          </tbody>
+        </table>
+        {% if device.description %}
+        <hr class="border-secondary">
+        <p class="text-muted small mb-0">{{ device.description }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Icon Upload -->
+    <div class="card bg-card border-0 mb-3">
+      <div class="card-header bg-transparent border-secondary">
+        <i class="bi bi-image text-warning"></i> Icon anpassen
+      </div>
+      <div class="card-body">
+        <input type="file" id="iconUpload" class="form-control form-control-sm mb-2" accept=".png,.jpg,.jpeg,.gif,.svg,.webp">
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-warning flex-grow-1" onclick="uploadIcon()">
+            <i class="bi bi-upload"></i> Hochladen
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="resetIcon()" title="Auf Standard zurücksetzen">
+            <i class="bi bi-arrow-counterclockwise"></i> Standard
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SNMP Metriken (template-basiert) -->
+    <div class="card bg-card border-0">
+      <div class="card-header bg-transparent border-secondary d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-bar-chart text-warning"></i> SNMP Metriken</span>
+        <div class="d-flex align-items-center gap-2">
+          <span id="snmp-hidden-badge" class="badge bg-secondary small" style="cursor:pointer;display:none!important"
+                onclick="toggleShowHidden()" title="Ausgeblendete Metriken ein-/ausblenden">
+            <i class="bi bi-eye-slash"></i> <span id="snmp-hidden-count">0</span> ausgeblendet
+          </span>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-dark table-sm mb-0">
+          <thead>
+            <tr>
+              <th class="ps-3">Metrik</th>
+              <th>Wert</th>
+              <th class="text-center" style="width:80px">Meldung</th>
+              <th style="width:28px"></th>
+            </tr>
+          </thead>
+          <tbody id="snmp-metrics-tbody">
+            <tr><td colspan="4" class="text-muted text-center py-3">Lade...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right column -->
+  <div class="col-lg-8">
+
+    <!-- ICMP Chart -->
+    <div class="card bg-card border-0 mb-4">
+      <div class="card-header bg-transparent border-secondary">
+        <i class="bi bi-activity text-warning"></i> ICMP Latenz (letzte 24h)
+      </div>
+      <div class="card-body">
+        <canvas id="latencyChart" height="120"></canvas>
+      </div>
+    </div>
+
+    <!-- ICMP Alert Rules -->
+    {% if device.icmp_enabled %}
+    <div class="card bg-card border-0 mb-4">
+      <div class="card-header bg-transparent border-secondary">
+        <span><i class="bi bi-bell text-warning"></i> ICMP Schwellwert-Alarme</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-dark table-sm mb-0">
+          <thead><tr>
+            <th>Latenz &gt;</th>
+            <th>Schweregrad</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="icmp-alert-body">
+            <tr id="icmp-alert-loading"><td colspan="3" class="text-center text-muted py-3">
+              <span class="spinner-border spinner-border-sm"></span>
+            </td></tr>
+          </tbody>
+          <tfoot>
+            <tr id="icmp-alert-new-row" style="display:none">
+              <td>
+                <div class="input-group input-group-sm" style="width:130px">
+                  <input type="number" id="icmp-new-threshold" class="form-control" placeholder="100" min="1" step="1">
+                  <span class="input-group-text text-muted">ms</span>
+                </div>
+              </td>
+              <td>
+                <select id="icmp-new-severity" class="form-select form-select-sm" style="width:130px">
+                  <option value="info">Info (Blau)</option>
+                  <option value="warning" selected>Warning (Gelb)</option>
+                  <option value="critical">Critical (Rot)</option>
+                </select>
+              </td>
+              <td class="d-flex gap-1">
+                <button class="btn btn-sm btn-warning" onclick="icmpAlertConfirmNew()">
+                  <i class="bi bi-check-lg"></i> Hinzufügen
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="icmpAlertCancelNew()">
+                  <i class="bi bi-x"></i>
+                </button>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="px-3 py-2">
+          <button class="btn btn-sm btn-outline-warning" id="icmp-add-btn" onclick="icmpAlertShowNew()">
+            <i class="bi bi-plus"></i> Regel hinzufügen
+          </button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if device.syslog_enabled %}
+    <!-- Syslog Messages -->
+    <div class="card bg-card border-0 mb-4">
+      <div class="card-header bg-transparent border-secondary">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+          <span><i class="bi bi-journal-text text-warning"></i> Syslog-Nachrichten</span>
+          <div class="d-flex gap-2 align-items-center flex-wrap">
+            <select id="syslog-hours" class="form-select form-select-sm" style="width:auto" onchange="loadSyslog()">
+              <option value="1">1h</option>
+              <option value="6">6h</option>
+              <option value="24" selected>24h</option>
+              <option value="72">3d</option>
+            </select>
+            <select id="syslog-sev" class="form-select form-select-sm" style="width:auto" onchange="loadSyslog()">
+              <option value="">Alle Schweregrade</option>
+              <option value="0">🔴 Emerg (0)</option>
+              <option value="1">🔴 Alert (1)</option>
+              <option value="2">🔴 Crit (2)</option>
+              <option value="3">🟠 Error (3)</option>
+              <option value="4">🟡 Warning (4)</option>
+              <option value="5">🔵 Notice (5)</option>
+              <option value="6">⚪ Info (6)</option>
+              <option value="7">⚫ Debug (7)</option>
+            </select>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadSyslog()" title="Aktualisieren">
+              <i class="bi bi-arrow-clockwise"></i>
+            </button>
+          </div>
+        </div>
+        <!-- Text search -->
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-dark border-secondary text-muted"><i class="bi bi-search"></i></span>
+          <input type="text" id="syslog-search" class="form-control bg-dark border-secondary text-light"
+            placeholder="Nachrichten durchsuchen…" oninput="filterSyslogLocal()">
+          <button class="btn btn-outline-secondary" onclick="document.getElementById('syslog-search').value=''; filterSyslogLocal()" title="Suche löschen">
+            <i class="bi bi-x"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Syslog Stats Bar -->
+      <div class="px-3 pt-2 pb-1 d-flex flex-wrap gap-1" id="syslog-stats" style="font-size:0.75rem"></div>
+      <div class="card-body p-0" id="syslog-container" style="max-height:500px;overflow-y:auto">
+        <div class="text-muted text-center py-3">Lade Syslog...</div>
+      </div>
+      <div class="px-3 py-1 text-muted border-top border-secondary" id="syslog-count" style="font-size:0.72rem"></div>
+    </div>
+    {% endif %}
+
+    <!-- Notes -->
+    <div class="card bg-card border-0">
+      <div class="card-header bg-transparent border-secondary d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-sticky text-warning"></i> Notizen & Passwörter</span>
+        <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#addNoteModal">
+          <i class="bi bi-plus"></i> Notiz
+        </button>
+      </div>
+      <div class="card-body" id="notes-container">
+        <div class="text-muted text-center py-3">Lade Notizen...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Note Modal ──────────────────────────────────────── -->
+<div class="modal fade" id="addNoteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-sticky text-warning"></i> Notiz hinzufügen</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addNoteForm">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Titel *</label>
+            <input type="text" name="title" class="form-control" required placeholder="z.B. Admin-Passwort">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Inhalt</label>
+            <textarea name="content" class="form-control" rows="4" placeholder="Inhalt der Notiz..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-warning">Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Device Modal ──────────────────────────────────── -->
+<div class="modal fade" id="editDeviceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-pencil text-warning"></i> Gerät bearbeiten</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editDeviceForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Name *</label>
+              <input type="text" name="name" class="form-control" required value="{{ device.name }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">IP-Adresse *</label>
+              <input type="text" name="ip_address" class="form-control" required value="{{ device.ip_address }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Gerätetyp</label>
+              <select name="device_type" class="form-select">
+                {% for key, label in device_types %}
+                <option value="{{ key }}" {% if key == device.device_type %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Beschreibung</label>
+              <textarea name="description" class="form-control" rows="2">{{ device.description or '' }}</textarea>
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>ICMP (Ping)</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="icmp_enabled" id="ed_icmp" {% if device.icmp_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_icmp">ICMP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="icmp_interval" class="form-control" value="{{ device.icmp_interval or 60 }}" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>SNMP v2c</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="snmp_enabled" id="ed_snmp" {% if device.snmp_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_snmp">SNMP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Community</label>
+              <input type="text" name="snmp_community" class="form-control" value="{{ device.snmp_community or 'public' }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Port</label>
+              <input type="number" name="snmp_port" class="form-control" value="{{ device.snmp_port or 161 }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="snmp_interval" class="form-control" value="{{ device.snmp_interval or 300 }}" min="30">
+            </div>
+            <div class="col-12" id="ed_tpl_section">
+              <label class="form-label">SNMP Templates <span class="text-danger fw-bold">*</span>
+                <small class="text-muted">(mind. 1 wenn SNMP aktiv)</small></label>
+              <div class="border border-secondary rounded p-2" id="ed_tpl_checks"
+                   style="max-height:120px;overflow-y:auto;background:#111">
+                <div class="text-muted small ps-1">Lade Templates…</div>
+              </div>
+              <input type="hidden" name="snmp_template_ids" id="ed_tpl_ids">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>TCP Port-Check</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="tcp_enabled" id="ed_tcp" {% if device.tcp_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_tcp">TCP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="tcp_port" class="form-control" value="{{ device.tcp_port or 80 }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="tcp_interval" class="form-control" value="{{ device.tcp_interval or 60 }}" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>HTTP / HTTPS Check</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="http_enabled" id="ed_http" {% if device.http_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_http">HTTP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">URL</label>
+              <input type="text" name="http_url" class="form-control" value="{{ device.http_url or '' }}" placeholder="https://192.168.1.1">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="http_interval" class="form-control" value="{{ device.http_interval or 60 }}" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-terminal"></i> SSH Banner-Check</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="ssh_enabled" id="ed_ssh" {% if device.ssh_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_ssh">SSH aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="ssh_port" class="form-control" value="{{ device.ssh_port or 22 }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="ssh_interval" class="form-control" value="{{ device.ssh_interval or 60 }}" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-windows"></i> WMI (Windows-Geräte)</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="wmi_enabled" id="ed_wmi" {% if device.wmi_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_wmi">WMI aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Benutzername</label>
+              <input type="text" name="wmi_username" class="form-control" value="{{ device.wmi_username or '' }}" placeholder="domain\user">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Passwort</label>
+              <input type="password" name="wmi_password" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="wmi_interval" class="form-control" value="{{ device.wmi_interval or 300 }}" min="60">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-diagram-2"></i> NetFlow / sFlow</h6></div>
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="netflow_enabled" id="ed_netflow" {% if device.netflow_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_netflow">NetFlow v5 <small class="text-muted">(UDP :2055)</small></label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="sflow_enabled" id="ed_sflow" {% if device.sflow_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_sflow">sFlow v5 <small class="text-muted">(UDP :6343)</small></label>
+              </div>
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-journal-text"></i> Syslog</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="syslog_enabled" id="ed_syslog" {% if device.syslog_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="ed_syslog">Syslog empfangen</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port <small class="text-muted">(Standard 514)</small></label>
+              <input type="number" name="syslog_port" class="form-control" value="{{ device.syslog_port or 514 }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Quell-IP <small class="text-muted">(optional, falls abweichend)</small></label>
+              <input type="text" name="syslog_source_ip" class="form-control" value="{{ device.syslog_source_ip or '' }}" placeholder="z.B. 192.168.1.100">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-warning fw-bold">Änderungen speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- SNMP Alert Config Modal -->
+<div class="modal fade" id="alertConfigModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:520px">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title mb-0">
+          <i class="bi bi-bell" style="color:#e06820"></i> Meldungen konfigurieren
+        </h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-3 fw-semibold" id="alert-modal-label"></div>
+        <div id="alert-rules-container"></div>
+        <button class="btn btn-sm btn-outline-secondary mt-1" onclick="addModalRule()">
+          <i class="bi bi-plus-lg"></i> Regel hinzufügen
+        </button>
+        <div class="form-text mt-2">Leerer Wert = Auslöser wenn Metrik nicht lesbar ist.</div>
+      </div>
+      <div class="modal-footer border-secondary py-2">
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteAllAlerts()">
+          <i class="bi bi-trash"></i> Alle löschen
+        </button>
+        <button class="btn btn-sm btn-warning" onclick="saveAlert()">
+          <i class="bi bi-check-lg"></i> Speichern
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+.btn-xs-inline {
+  padding: 1px 5px;
+  font-size: 0.65rem;
+  line-height: 1.2;
+  border-radius: 3px;
+  opacity: 0.6;
+  transition: opacity .15s;
+  flex-shrink: 0;
+}
+.btn-xs-inline:hover { opacity: 1; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+const DEVICE_ID = {{ device.id }};
+const SNMP_TEMPLATE_IDS = [{% for tid in template_ids %}{{ tid }}{% if not loop.last %},{% endif %}{% endfor %}];
+let latencyChart = null;
+
+// All 13 SNMP metrics definition (mirrors snmp_check.py)
+const SNMP_METRICS = [
+  { key: 'sysDescr',        name: 'System Beschreibung' },
+  { key: 'sysUpTime',       name: 'Uptime' },
+  { key: 'sysContact',      name: 'Kontakt' },
+  { key: 'sysLocation',     name: 'Standort' },
+  { key: 'cpuLoad',         name: 'CPU Last' },
+  { key: 'memTotal',        name: 'RAM gesamt' },
+  { key: 'ifOperStatus',    name: 'IF1 Status' },
+  { key: 'ifInOctets',      name: 'IF1 Eingehend' },
+  { key: 'ifOutOctets',     name: 'IF1 Ausgehend' },
+  { key: 'ifInErrors',      name: 'IF1 Fehler ein' },
+  { key: 'ifOutErrors',     name: 'IF1 Fehler aus' },
+  { key: 'tcpCurrEstab',    name: 'TCP Verbindungen' },
+  { key: 'ipForwDatagrams', name: 'IP Forwarding' },
+];
+
+let latestMetrics = {};
+
+// ── Init ──────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadSnmpMetrics();
+  loadLatencyChart();
+  loadNotes();
+  {% if device.icmp_enabled %}loadIcmpAlerts();{% endif %}
+  {% if device.syslog_enabled %}loadSyslog();{% endif %}
+});
+
+// ── SNMP Metriken (template-basiert) ──────────────────────────
+let _alertsConfig = {};  // entry_id → alert row
+let _hiddenMetrics = new Set();
+let _showHidden = false;
+
+async function loadSnmpMetrics() {
+  const [entriesResp, metricsResp, alertsResp, hiddenResp] = await Promise.all([
+    fetch(`/api/devices/${DEVICE_ID}/template-entries`),
+    fetch(`/api/devices/${DEVICE_ID}/metrics/latest`),
+    fetch(`/api/devices/${DEVICE_ID}/snmp-alerts`),
+    fetch(`/api/devices/${DEVICE_ID}/snmp-hidden`),
+  ]);
+  latestMetrics = metricsResp.ok ? await metricsResp.json() : {};
+  const alertData = alertsResp.ok ? await alertsResp.json() : [];
+  _alertsConfig = {};
+  for (const a of alertData) _alertsConfig[a.entry_id] = a;
+  if (hiddenResp.ok) {
+    const h = await hiddenResp.json();
+    _hiddenMetrics = new Set(h.hidden || []);
+  }
+
+  const tbody = document.getElementById('snmp-metrics-tbody');
+  if (!entriesResp.ok) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">Fehler beim Laden</td></tr>';
+    return;
+  }
+  const entries = await entriesResp.json();
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3 small">'
+      + '<i class="bi bi-info-circle me-1"></i>Kein Template zugewiesen – bitte im Bearbeiten-Dialog SNMP-Template wählen.</td></tr>';
+    return;
+  }
+
+  const hiddenCount = entries.filter(e => _hiddenMetrics.has(e.id)).length;
+  const badge = document.getElementById('snmp-hidden-badge');
+  document.getElementById('snmp-hidden-count').textContent = hiddenCount;
+  badge.style.display = hiddenCount > 0 ? '' : 'none';
+
+  tbody.innerHTML = entries.map(e => {
+    const hidden = _hiddenMetrics.has(e.id);
+    if (hidden && !_showHidden) return '';
+    const m   = latestMetrics[`snmp_tpl_${e.id}`];
+    const val = m ? escHtml(m.value_str ?? '–') : '<span class="text-muted">–</span>';
+    const a   = _alertsConfig[e.id];
+    const enabled   = a && a.enabled;
+    const triggered = a && a.triggered;
+    const sev       = a ? (a.trig_severity || 'warning') : 'warning';
+    const sevColor  = sev === 'critical' ? '#dc3545' : sev === 'warning' ? '#ffc107' : '#0dcaf0';
+    const bellStyle = triggered
+      ? `color:${sevColor};cursor:pointer`
+      : enabled ? 'color:#e06820;cursor:pointer' : 'color:#6c757d;opacity:.35;cursor:default';
+    const bellClass = triggered ? 'bi-bell-fill' : 'bi-bell';
+    const rowStyle  = hidden ? 'opacity:.4' : '';
+    return `<tr style="${rowStyle}">
+      <td class="ps-3 small">${escHtml(e.label)}</td>
+      <td class="small">${val}</td>
+      <td class="text-center">
+        <div class="d-flex align-items-center justify-content-center gap-1">
+          <input type="checkbox" class="form-check-input form-check-input-sm" title="Meldung aktivieren"
+                 ${enabled ? 'checked' : ''}
+                 onchange="onAlertCheckbox(${e.id}, this.checked)">
+          <i class="bi ${bellClass}" id="alert-bell-${e.id}" style="${bellStyle}"
+             title="${enabled ? 'Meldungen konfigurieren' : 'Aktivieren um Meldungen zu konfigurieren'}"
+             onclick="${enabled ? `openAlertModal(${e.id},'${escHtml(e.label).replace(/'/g,"\\'")}')` : ''}"></i>
+        </div>
+      </td>
+      <td class="text-center pe-1">
+        <i class="bi ${hidden ? 'bi-eye-slash text-warning' : 'bi-eye text-muted'}"
+           style="cursor:pointer;font-size:.75rem"
+           title="${hidden ? 'Einblenden' : 'Ausblenden'}"
+           onclick="toggleHideMetric(${e.id})"></i>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleShowHidden() {
+  _showHidden = !_showHidden;
+  const badge = document.getElementById('snmp-hidden-badge');
+  badge.classList.toggle('bg-warning', _showHidden);
+  badge.classList.toggle('text-dark', _showHidden);
+  badge.classList.toggle('bg-secondary', !_showHidden);
+  loadSnmpMetrics();
+}
+
+async function toggleHideMetric(entryId) {
+  if (_hiddenMetrics.has(entryId)) {
+    _hiddenMetrics.delete(entryId);
+  } else {
+    _hiddenMetrics.add(entryId);
+  }
+  await fetch(`/api/devices/${DEVICE_ID}/snmp-hidden`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({hidden: [..._hiddenMetrics]}),
+  });
+  loadSnmpMetrics();
+}
+
+// ── Alert helpers ──────────────────────────────────────────────
+let _alertCurrentEntryId = null;
+let _modalRules = [];  // working copy for the modal
+
+async function onAlertCheckbox(entryId, checked) {
+  await fetch(`/api/devices/${DEVICE_ID}/snmp-alerts/entry/${entryId}/enabled`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ enabled: checked ? 1 : 0 }),
+  });
+  await loadSnmpMetrics();
+}
+
+function openAlertModal(entryId, label) {
+  _alertCurrentEntryId = entryId;
+  document.getElementById('alert-modal-label').textContent = label;
+  const g = _alertsConfig[entryId];
+  _modalRules = g ? g.rules.map(r => ({...r})) : [];
+  if (!_modalRules.length) _modalRules.push({ id: null, operator: '>', threshold: '', severity: 'warning' });
+  renderModalRules();
+  new bootstrap.Modal(document.getElementById('alertConfigModal')).show();
+}
+
+function renderModalRules() {
+  const container = document.getElementById('alert-rules-container');
+  container.innerHTML = _modalRules.map((r, i) => `
+    <div class="d-flex gap-1 align-items-center mb-2" id="rule-row-${i}">
+      <span class="small text-muted text-nowrap" style="min-width:32px">Wert</span>
+      <select class="form-select form-select-sm bg-dark text-light border-secondary" style="width:68px"
+              onchange="_modalRules[${i}].operator=this.value">
+        <option value=">"  ${r.operator==='>'  ? 'selected' : ''}>&gt;</option>
+        <option value="<"  ${r.operator==='<'  ? 'selected' : ''}>&lt;</option>
+        <option value="="  ${r.operator==='='  ? 'selected' : ''}>=</option>
+        <option value="!=" ${r.operator==='!=' ? 'selected' : ''}>≠</option>
+      </select>
+      <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+             style="min-width:0;flex:1" placeholder="leer=nicht lesbar"
+             value="${escHtml(r.threshold)}"
+             oninput="_modalRules[${i}].threshold=this.value.trim()">
+      <select class="form-select form-select-sm bg-dark text-light border-secondary" style="width:130px"
+              onchange="_modalRules[${i}].severity=this.value">
+        <option value="critical" ${r.severity==='critical' ? 'selected' : ''}>🔴 Kritisch</option>
+        <option value="warning"  ${r.severity==='warning'  ? 'selected' : ''}>🟡 Warnung</option>
+        <option value="info"     ${r.severity==='info'     ? 'selected' : ''}>🔵 Info</option>
+      </select>
+      <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeModalRule(${i})" title="Regel löschen">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>`).join('');
+}
+
+function removeModalRule(i) {
+  _modalRules.splice(i, 1);
+  if (!_modalRules.length) _modalRules.push({ id: null, operator: '>', threshold: '', severity: 'warning' });
+  renderModalRules();
+}
+
+function addModalRule() {
+  _modalRules.push({ id: null, operator: '>', threshold: '', severity: 'warning' });
+  renderModalRules();
+}
+
+async function saveAlert() {
+  if (!_alertCurrentEntryId) return;
+  // Delete all existing rules for this entry, then re-add
+  await fetch(`/api/devices/${DEVICE_ID}/snmp-alerts/entry/${_alertCurrentEntryId}`, { method: 'DELETE' });
+  // Also re-enable entry cfg
+  await fetch(`/api/devices/${DEVICE_ID}/snmp-alerts/entry/${_alertCurrentEntryId}/enabled`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({enabled:1}),
+  });
+  for (const r of _modalRules) {
+    await fetch(`/api/devices/${DEVICE_ID}/snmp-alerts/entry/${_alertCurrentEntryId}/rules`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ operator: r.operator, threshold: r.threshold, severity: r.severity }),
+    });
+  }
+  bootstrap.Modal.getInstance(document.getElementById('alertConfigModal')).hide();
+  loadSnmpMetrics();
+}
+
+async function deleteAllAlerts() {
+  if (!_alertCurrentEntryId) return;
+  await fetch(`/api/devices/${DEVICE_ID}/snmp-alerts/entry/${_alertCurrentEntryId}`, { method: 'DELETE' });
+  bootstrap.Modal.getInstance(document.getElementById('alertConfigModal')).hide();
+  loadSnmpMetrics();
+}
+
+// ── Template multi-select helpers ────────────────────────────
+async function loadTplChecks(containerId, selectedIds) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '<div class="text-muted small ps-1">Lade…</div>';
+  try {
+    const r = await fetch('/api/snmp/templates');
+    if (!r.ok) return;
+    const templates = await r.json();
+    if (!templates.length) {
+      el.innerHTML = '<div class="text-muted small ps-1">Keine Templates – erst unter Einstellungen → Protokolle erstellen.</div>';
+      return;
+    }
+    el.innerHTML = templates.map(t => `
+      <div class="form-check py-1">
+        <input class="form-check-input" type="checkbox" id="tpl-cb-${containerId}-${t.id}" value="${t.id}"
+               ${selectedIds.includes(t.id) ? 'checked' : ''}>
+        <label class="form-check-label small" for="tpl-cb-${containerId}-${t.id}">
+          ${escHtml(t.name)}
+          ${t.is_default ? '<span class="badge bg-warning text-dark ms-1" style="font-size:.55rem">Standard</span>' : ''}
+        </label>
+      </div>`).join('');
+  } catch { el.innerHTML = '<div class="text-danger small ps-1">Fehler</div>'; }
+}
+
+function getCheckedTplIds(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return [];
+  return [...el.querySelectorAll('input[type="checkbox"]:checked')].map(cb => parseInt(cb.value));
+}
+
+document.getElementById('editDeviceModal').addEventListener('show.bs.modal', () => {
+  loadTplChecks('ed_tpl_checks', SNMP_TEMPLATE_IDS);
+});
+
+// ── ICMP Alert Rules ──────────────────────────────────────────
+const _SEV_COLORS = { critical: '#dc3545', warning: '#e0c020', info: '#4a9eff' };
+
+async function loadIcmpAlerts() {
+  const tbody = document.getElementById('icmp-alert-body');
+  if (!tbody) return;
+  try {
+    const r = await fetch(`/api/devices/${DEVICE_ID}/icmp-alerts`);
+    const data = await r.json();
+    renderIcmpAlertRows(data.rules || []);
+  } catch {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center">Fehler beim Laden</td></tr>';
+  }
+}
+
+function renderIcmpAlertRows(rules) {
+  const tbody = document.getElementById('icmp-alert-body');
+  if (!tbody) return;
+  if (!rules.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-2 small">Keine Regeln – Balken im Dashboard-Widget bleibt grün.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rules.map(rule => {
+    const sevColor = _SEV_COLORS[rule.severity] || '#28a745';
+    return `<tr data-rule-id="${rule.id}">
+      <td>
+        <div class="input-group input-group-sm" style="width:130px">
+          <input type="number" class="form-control" value="${escHtml(rule.threshold)}"
+                 min="1" step="1" onchange="icmpAlertSave(${rule.id}, this.closest('tr'))">
+          <span class="input-group-text text-muted">ms</span>
+        </div>
+      </td>
+      <td>
+        <select class="form-select form-select-sm" style="width:130px;border-color:${sevColor}"
+                onchange="icmpAlertSave(${rule.id}, this.closest('tr'))">
+          <option value="info"     ${rule.severity === 'info'     ? 'selected' : ''}>Info (Blau)</option>
+          <option value="warning"  ${rule.severity === 'warning'  ? 'selected' : ''}>Warning (Gelb)</option>
+          <option value="critical" ${rule.severity === 'critical' ? 'selected' : ''}>Critical (Rot)</option>
+        </select>
+      </td>
+      <td>
+        <button class="btn btn-sm btn-outline-danger" onclick="icmpAlertDelete(${rule.id})">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function icmpAlertSave(ruleId, row) {
+  const thr = row.querySelector('input[type=number]').value;
+  const sev = row.querySelector('select').value;
+  row.querySelector('select').style.borderColor = _SEV_COLORS[sev] || '#28a745';
+  await fetch(`/api/devices/${DEVICE_ID}/icmp-alerts/${ruleId}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ operator: '>', threshold: thr, severity: sev }),
+  });
+}
+
+async function icmpAlertDelete(ruleId) {
+  await fetch(`/api/devices/${DEVICE_ID}/icmp-alerts/${ruleId}`, { method: 'DELETE' });
+  loadIcmpAlerts();
+}
+
+function icmpAlertShowNew() {
+  document.getElementById('icmp-alert-new-row').style.display = '';
+  document.getElementById('icmp-add-btn').style.display = 'none';
+  document.getElementById('icmp-new-threshold').value = '';
+  document.getElementById('icmp-new-threshold').focus();
+}
+
+function icmpAlertCancelNew() {
+  document.getElementById('icmp-alert-new-row').style.display = 'none';
+  document.getElementById('icmp-add-btn').style.display = '';
+}
+
+async function icmpAlertConfirmNew() {
+  const thr = document.getElementById('icmp-new-threshold').value.trim();
+  const sev = document.getElementById('icmp-new-severity').value;
+  if (!thr || isNaN(thr) || Number(thr) <= 0) {
+    document.getElementById('icmp-new-threshold').classList.add('is-invalid');
+    return;
+  }
+  document.getElementById('icmp-new-threshold').classList.remove('is-invalid');
+  await fetch(`/api/devices/${DEVICE_ID}/icmp-alerts`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ operator: '>', threshold: thr, severity: sev }),
+  });
+  icmpAlertCancelNew();
+  loadIcmpAlerts();
+}
+
+
+// ── Latency Chart ─────────────────────────────────────────────
+async function loadLatencyChart() {
+  const r = await fetch(`/api/devices/${DEVICE_ID}/metrics?metric=icmp_latency&hours=24&limit=200`);
+  const data = await r.json();
+  const labels = data.map(d => {
+    const t = new Date(d.timestamp);
+    return t.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+  });
+  const values = data.map(d => d.value_float);
+  const ctx = document.getElementById('latencyChart').getContext('2d');
+  latencyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Latenz (ms)',
+        data: values,
+        borderColor: '#ffc107',
+        backgroundColor: 'rgba(255,193,7,0.1)',
+        tension: 0.3,
+        fill: true,
+        pointRadius: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#aaa', maxTicksLimit: 10 }, grid: { color: '#333' } },
+        y: { ticks: { color: '#aaa' }, grid: { color: '#333' }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+// ── Notes ─────────────────────────────────────────────────────
+async function loadNotes() {
+  const r = await fetch(`/api/devices/${DEVICE_ID}/notes`);
+  const notes = await r.json();
+  const container = document.getElementById('notes-container');
+  if (!notes.length) {
+    container.innerHTML = '<p class="text-muted text-center mb-0">Noch keine Notizen.</p>';
+    return;
+  }
+  container.innerHTML = notes.map(n => `
+    <div class="card bg-dark border-secondary mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <strong class="small">${escHtml(n.title)}</strong>
+          <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteNote(${n.id})">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+        <pre class="mb-0 mt-1 text-muted small" style="white-space:pre-wrap">${escHtml(n.content)}</pre>
+        <div class="text-muted" style="font-size:0.7rem">${new Date(n.created_at).toLocaleString('de-DE')}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('addNoteForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const r = await fetch(`/api/devices/${DEVICE_ID}/notes`, { method: 'POST', body: fd });
+  if (r.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('addNoteModal')).hide();
+    e.target.reset();
+    loadNotes();
+  }
+});
+
+async function deleteNote(id) {
+  if (!confirm('Notiz löschen?')) return;
+  await fetch(`/api/notes/${id}`, { method: 'DELETE' });
+  loadNotes();
+}
+
+// ── Manual Ping ───────────────────────────────────────────────
+async function manualPing() {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  const r = await fetch(`/api/devices/${DEVICE_ID}/ping`);
+  const res = await r.json();
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-broadcast"></i> Ping';
+  const badge = document.getElementById('status-badge');
+  if (res.reachable) {
+    badge.className = 'badge fs-6 bg-success';
+    badge.textContent = `Online – ${res.latency_ms?.toFixed(1) ?? '?'} ms`;
+  } else {
+    badge.className = 'badge fs-6 bg-danger';
+    badge.textContent = 'Offline';
+  }
+}
+
+// ── Method Check (toolbar buttons) ────────────────────────────
+async function checkMethod(method, btn) {
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    await fetch(`/api/check/device/${DEVICE_ID}/${method}`, { method: 'POST' });
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> OK';
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = orig; loadSnmpMetrics(); }, 2500);
+  } catch {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+// ── Inline Check (info table buttons) ─────────────────────────
+async function inlineCheck(method, btn) {
+  btn.disabled = true;
+  const origHtml = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem"></span>';
+  try {
+    if (method === 'icmp') {
+      const r = await fetch(`/api/devices/${DEVICE_ID}/ping`);
+      const res = await r.json();
+      const badge = document.getElementById('status-badge');
+      const valEl = document.getElementById('info-icmp-val');
+      if (res.reachable) {
+        badge.className = 'badge fs-6 bg-success';
+        badge.textContent = `Online – ${res.latency_ms?.toFixed(1) ?? '?'} ms`;
+        if (valEl) valEl.innerHTML = `<span class="badge bg-success">Online</span> <small class="text-muted">${res.latency_ms?.toFixed(1) ?? '?'} ms</small>`;
+        btn.innerHTML = '<i class="bi bi-check-lg text-success"></i>';
+      } else {
+        badge.className = 'badge fs-6 bg-danger';
+        badge.textContent = 'Offline';
+        if (valEl) valEl.innerHTML = `<span class="badge bg-danger">Offline</span>`;
+        btn.innerHTML = '<i class="bi bi-x-lg text-danger"></i>';
+      }
+      setTimeout(() => { btn.disabled = false; btn.innerHTML = origHtml; }, 3000);
+    } else if (method === 'tcp' || method === 'http' || method === 'ssh') {
+      const r = await fetch(`/api/devices/${DEVICE_ID}/check_now/${method}`);
+      const res = await r.json();
+      const el = document.getElementById(`info-${method}-val`);
+      if (el) {
+        if (method === 'tcp') {
+          el.innerHTML = res.reachable
+            ? `<span class="badge bg-success">Open</span> <small class="text-muted">${res.connect_ms?.toFixed(1) ?? '?'} ms</small> <small class="text-muted">:${res.port}</small>`
+            : `<span class="badge bg-danger">Geschlossen</span> <small class="text-muted">:${res.port}</small>`;
+        } else if (method === 'http') {
+          const url = el.querySelector('small.text-break')?.textContent?.trim() ?? '';
+          el.innerHTML = res.reachable
+            ? `<span class="badge bg-success">${res.status_code}</span> <small class="text-muted">${res.response_ms?.toFixed(1) ?? '?'} ms</small> <small class="text-muted text-break ms-1" style="max-width:110px;display:inline-block;vertical-align:middle">${url}</small>`
+            : `<span class="badge bg-danger">Fehler</span> <small class="text-muted text-break ms-1" style="max-width:110px;display:inline-block;vertical-align:middle">${url}</small>`;
+        } else if (method === 'ssh') {
+          el.innerHTML = res.reachable
+            ? `<span class="badge bg-success">Open</span> <small class="text-muted">${res.banner || ''}</small> <small class="text-muted">:${res.port}</small>`
+            : `<span class="badge bg-danger">Geschlossen</span> <small class="text-muted">:${res.port}</small>`;
+        }
+      }
+      btn.innerHTML = res.reachable
+        ? '<i class="bi bi-check-lg text-success"></i>'
+        : '<i class="bi bi-x-lg text-danger"></i>';
+      setTimeout(() => { btn.disabled = false; btn.innerHTML = origHtml; }, 3000);
+    } else {
+      await fetch(`/api/check/device/${DEVICE_ID}/${method}`, { method: 'POST' });
+      btn.innerHTML = '<i class="bi bi-check-lg text-success"></i>';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        if (method === 'snmp') loadSnmpMetrics();
+      }, 2500);
+    }
+  } catch {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+  }
+}
+
+// ── Icon Upload ───────────────────────────────────────────────
+async function uploadIcon() {
+  const fileInput = document.getElementById('iconUpload');
+  if (!fileInput.files.length) { alert('Bitte eine Datei auswählen.'); return; }
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  const r = await fetch(`/api/devices/${DEVICE_ID}/icon`, { method: 'POST', body: fd });
+  if (r.ok) location.reload(); else alert('Fehler beim Hochladen');
+}
+
+async function resetIcon() {
+  if (!confirm('Icon auf Standard zurücksetzen?')) return;
+  const r = await fetch(`/api/devices/${DEVICE_ID}/icon`, { method: 'DELETE' });
+  if (r.ok) location.reload(); else alert('Fehler beim Zurücksetzen');
+}
+
+// ── Edit Device ───────────────────────────────────────────────
+document.getElementById('editDeviceForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const bools = ['icmp_enabled','snmp_enabled','tcp_enabled','http_enabled',
+                  'ssh_enabled','wmi_enabled','netflow_enabled','sflow_enabled','syslog_enabled'];
+  bools.forEach(name => {
+    const el = e.target.querySelector(`[name="${name}"]`);
+    fd.set(name, el && el.checked ? 'true' : 'false');
+  });
+  fd.set('is_active', 'true');
+  // Collect multi-select template IDs
+  const tplIds = getCheckedTplIds('ed_tpl_checks');
+  const snmpOn = fd.get('snmp_enabled') === 'true';
+  if (snmpOn && tplIds.length === 0) {
+    alert('Bitte mindestens ein SNMP-Template auswählen.');
+    return;
+  }
+  fd.set('snmp_template_ids', tplIds.join(','));
+  const r = await fetch(`/api/devices/${DEVICE_ID}`, { method: 'PUT', body: fd });
+  if (r.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('editDeviceModal')).hide();
+    location.reload();
+  } else {
+    alert('Fehler beim Speichern');
+  }
+});
+
+// ── Syslog ────────────────────────────────────────────────────
+const SYSLOG_SEV = {
+  emerg:   { badge: 'danger',   border: '#dc3545', bg: 'rgba(220,53,69,0.10)',  icon: '🔴' },
+  alert:   { badge: 'danger',   border: '#dc3545', bg: 'rgba(220,53,69,0.10)',  icon: '🔴' },
+  crit:    { badge: 'danger',   border: '#dc3545', bg: 'rgba(220,53,69,0.08)',  icon: '🔴' },
+  err:     { badge: 'warning',  border: '#fd7e14', bg: 'rgba(253,126,20,0.08)', icon: '🟠' },
+  warning: { badge: 'warning',  border: '#ffc107', bg: 'rgba(255,193,7,0.07)',  icon: '🟡' },
+  notice:  { badge: 'info',     border: '#0dcaf0', bg: 'rgba(13,202,240,0.06)', icon: '🔵' },
+  info:    { badge: 'secondary',border: '#6c757d', bg: 'transparent',           icon: '⚪' },
+  debug:   { badge: 'secondary',border: '#444',    bg: 'transparent',           icon: '⚫' },
+};
+
+let _syslogAll = [];  // full unfiltered list
+
+async function loadSyslog() {
+  const hours = document.getElementById('syslog-hours')?.value || 24;
+  const sev   = document.getElementById('syslog-sev')?.value;
+  let url = `/api/devices/${DEVICE_ID}/syslog?hours=${hours}&limit=500`;
+  if (sev !== '' && sev !== null && sev !== undefined) url += `&min_severity=${sev}`;
+
+  const [msgsResp, statsResp] = await Promise.all([
+    fetch(url),
+    fetch(`/api/devices/${DEVICE_ID}/syslog/stats?hours=${hours}`),
+  ]);
+  _syslogAll = await msgsResp.json();
+  const stats = await statsResp.json();
+
+  // Stats bar — clickable badges filter by severity
+  const statsEl = document.getElementById('syslog-stats');
+  if (statsEl) {
+    const order = ['emerg','alert','crit','err','warning','notice','info','debug'];
+    const parts = order.filter(s => stats[s]).map(s => {
+      const cfg = SYSLOG_SEV[s] || SYSLOG_SEV.info;
+      return `<span class="badge bg-${cfg.badge} me-1" style="cursor:pointer" onclick="quickFilterSev('${s}')" title="Nur ${s} anzeigen">
+        ${cfg.icon} ${s} <strong>${stats[s]}</strong>
+      </span>`;
+    });
+    statsEl.innerHTML = parts.length
+      ? parts.join('')
+      : '<span class="text-muted small">Keine Nachrichten im Zeitraum</span>';
+  }
+
+  filterSyslogLocal();
+}
+
+function quickFilterSev(sev) {
+  document.getElementById('syslog-search').value = sev;
+  filterSyslogLocal();
+}
+
+function filterSyslogLocal() {
+  const term = (document.getElementById('syslog-search')?.value || '').toLowerCase();
+  const container = document.getElementById('syslog-container');
+  const countEl   = document.getElementById('syslog-count');
+
+  const filtered = term
+    ? _syslogAll.filter(m =>
+        m.message.toLowerCase().includes(term) ||
+        m.severity_name.toLowerCase().includes(term) ||
+        (m.hostname || '').toLowerCase().includes(term) ||
+        (m.raw || '').toLowerCase().includes(term))
+    : _syslogAll;
+
+  if (countEl) countEl.textContent = `${filtered.length} von ${_syslogAll.length} Nachrichten`;
+
+  if (!filtered.length) {
+    container.innerHTML = `<p class="text-muted text-center py-3 mb-0">${
+      term ? `Keine Treffer für „${escHtml(term)}"` : 'Keine Syslog-Nachrichten.'
+    }</p>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(m => {
+    const cfg = SYSLOG_SEV[m.severity_name] || SYSLOG_SEV.info;
+    const ts  = new Date(m.received_at + 'Z').toLocaleString('de-DE');
+    const msg = term ? hlTerm(m.message, term) : escHtml(m.message);
+    const canResolve = m.severity <= 4;  // warning and above
+    return `<div class="border-bottom border-secondary px-3 py-2" id="syslog-msg-${m.id}"
+               style="font-size:0.78rem;border-left:3px solid ${cfg.border} !important;background:${cfg.bg}">
+      <div class="d-flex gap-2 align-items-center mb-1 flex-wrap">
+        <span class="badge bg-${cfg.badge}">${cfg.icon} ${escHtml(m.severity_name)}</span>
+        ${m.hostname ? `<span class="text-muted small">${escHtml(m.hostname)}</span>` : ''}
+        <span class="text-muted small ms-auto" style="white-space:nowrap">${ts}</span>
+        ${canResolve ? `<button class="btn btn-outline-success btn-sm py-0 px-1" style="font-size:.65rem" onclick="resolveSyslogDev(${m.id})" title="Als gelöst markieren (löscht Meldung)"><i class="bi bi-check-lg"></i> Gelöst</button>` : ''}
+      </div>
+      <code class="text-light" style="word-break:break-all;font-size:0.76rem">${msg}</code>
+    </div>`;
+  }).join('');
+}
+
+async function resolveSyslogDev(msgId) {
+  await fetch(`/api/syslog/messages/${msgId}`, {method: 'DELETE'});
+  const el = document.getElementById(`syslog-msg-${msgId}`);
+  if (el) el.remove();
+  const countEl = document.getElementById('syslog-count');
+  if (countEl) {
+    const m = countEl.textContent.match(/(\d+) von (\d+)/);
+    if (m) countEl.textContent = `${parseInt(m[1])-1} von ${parseInt(m[2])-1} Nachrichten`;
+  }
+}
+
+function hlTerm(text, term) {
+  const escaped = escHtml(text);
+  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return escaped.replace(new RegExp(`(${escapedTerm})`, 'gi'),
+    '<mark style="background:#ffc107;color:#000;padding:0 1px;border-radius:2px">$1</mark>');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

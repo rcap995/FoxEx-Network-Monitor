@@ -1,0 +1,917 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – FoxEx Network Monitor{% endblock %}
+
+{% block head %}
+<style>
+.edit-mode .dash-widget::after {
+  content: '';
+  position: absolute; inset: 0;
+  border: 2px dashed var(--fox-yellow);
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: .45;
+  z-index: 5;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <h2 class="mb-0 fs-5"><i class="bi bi-speedometer2 text-warning"></i> Dashboard</h2>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted small" id="last-update"></span>
+    <button class="btn btn-sm btn-outline-secondary" id="edit-toggle" onclick="toggleEditMode()">
+      <i class="bi bi-pencil-square"></i> Anpassen
+    </button>
+    <button class="btn btn-sm btn-outline-info" onclick="location.reload()">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+</div>
+
+<!-- Edit-mode panel -->
+<div id="edit-panel" class="card bg-card border-secondary mb-2" style="display:none">
+  <div class="card-body py-2 px-3" style="font-size:.8rem">
+    <span class="text-muted me-2"><i class="bi bi-eye"></i> Sichtbar:</span>
+    <div class="d-inline-flex flex-wrap gap-2" id="widget-toggles"></div>
+    <button class="btn btn-sm btn-outline-secondary ms-2" onclick="resetWidgets()">
+      <i class="bi bi-arrow-counterclockwise"></i> Zurücksetzen
+    </button>
+    <span class="text-muted ms-3"><i class="bi bi-fullscreen"></i> = Breite ändern</span>
+  </div>
+</div>
+
+<!-- 4-column widget grid -->
+<div id="widget-container">
+
+<!-- Widget: Status Cards (always full-width) -->
+<div class="dash-widget widget-full" id="widget-stat-cards" data-widget-id="stat-cards">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <div class="row g-2">
+    <div class="col-6 col-md-3">
+      <div class="card border-0 bg-card">
+        <div class="card-body text-center py-2 px-1">
+          <div class="stat-number" id="cnt-total">–</div>
+          <div class="text-muted" style="font-size:.7rem">Gesamt</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card border-0 bg-card">
+        <div class="card-body text-center py-2 px-1">
+          <div class="stat-number text-success" id="cnt-online">–</div>
+          <div class="text-muted" style="font-size:.7rem">Online</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card border-0 bg-card">
+        <div class="card-body text-center py-2 px-1">
+          <div class="stat-number text-danger" id="cnt-offline">–</div>
+          <div class="text-muted" style="font-size:.7rem">Offline</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card border-0 bg-card">
+        <div class="card-body text-center py-2 px-1">
+          <div class="stat-number text-secondary" id="cnt-unknown">–</div>
+          <div class="text-muted" style="font-size:.7rem">Unbekannt</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Widget: Status Donut -->
+<div class="dash-widget widget-2col" id="widget-status-donut" data-widget-id="status-donut">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('status-donut')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-pie-chart text-warning"></i> Status</span>
+      <div class="d-flex align-items-center gap-1">
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-status" onclick="openAlertsOverview('status')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-status" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('status')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-1 resizable-body" id="rb-status-donut">
+      <canvas id="statusDonut"></canvas>
+    </div>
+    <div class="widget-resize-handle" data-widget="status-donut"></div>
+  </div>
+</div>
+
+<!-- Widget: Latency Trend -->
+<div class="dash-widget widget-2col" id="widget-latency-trend" data-widget-id="latency-trend">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('latency-trend')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-activity text-warning"></i> Ø Latenz – alle Geräte</span>
+      <div class="d-flex align-items-center gap-1">
+        <select class="form-select form-select-sm py-0" id="latency-hours" style="width:auto;font-size:.75rem" onchange="loadLatencyTrend()">
+          <option value="6">6h</option>
+          <option value="24" selected>24h</option>
+          <option value="72">3d</option>
+          <option value="168">7d</option>
+        </select>
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-icmp_avg" onclick="openAlertsOverview('icmp_avg')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-icmp_avg" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('icmp_avg')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-1 resizable-body" id="rb-latency-trend">
+      <canvas id="latencyTrend"></canvas>
+    </div>
+    <div class="widget-resize-handle" data-widget="latency-trend"></div>
+  </div>
+</div>
+
+<!-- Widget: Device Latency -->
+<div class="dash-widget widget-2col" id="widget-device-latency" data-widget-id="device-latency">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('device-latency')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-bar-chart text-warning"></i> Latenz/Gerät</span>
+      <div class="d-flex align-items-center gap-1">
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-device_latency" onclick="openAlertsOverview('device_latency')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-device_latency" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('device_latency')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-1 resizable-body" id="rb-device-latency">
+      <canvas id="deviceLatencyBar"></canvas>
+    </div>
+    <div class="widget-resize-handle" data-widget="device-latency"></div>
+  </div>
+</div>
+
+<!-- Widget: Packet Loss -->
+<div class="dash-widget widget-2col" id="widget-packet-loss" data-widget-id="packet-loss">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('packet-loss')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-exclamation-triangle text-warning"></i> Ø Paketverlust – alle Geräte</span>
+      <div class="d-flex align-items-center gap-1">
+        <select class="form-select form-select-sm py-0" id="packet-loss-hours" style="width:auto;font-size:.75rem" onchange="loadPacketLossTrend()">
+          <option value="6">6h</option>
+          <option value="24" selected>24h</option>
+          <option value="72">3d</option>
+          <option value="168">7d</option>
+        </select>
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-packet_loss" onclick="openAlertsOverview('packet_loss')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-packet_loss" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('packet_loss')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-1 resizable-body" id="rb-packet-loss">
+      <canvas id="packetLossChart"></canvas>
+    </div>
+    <div class="widget-resize-handle" data-widget="packet-loss"></div>
+  </div>
+</div>
+
+<!-- Widget: Syslog Summary -->
+<div class="dash-widget widget-2col" id="widget-syslog-summary" data-widget-id="syslog-summary">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('syslog-summary')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-journal-text text-warning"></i> Syslog Status</span>
+      <div class="d-flex align-items-center gap-1">
+        <select id="syslog-summary-hours" class="form-select form-select-sm py-0"
+          onchange="loadSyslogSummary()" style="width:auto;font-size:.75rem">
+          <option value="1">1h</option>
+          <option value="6">6h</option>
+          <option value="24" selected>24h</option>
+          <option value="72">3d</option>
+        </select>
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-syslog" onclick="openAlertsOverview('syslog')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-syslog" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('syslog')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="syslog-summary-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="syslog-summary"></div>
+  </div>
+</div>
+
+<!-- Widget: SNMP-Meldungen -->
+<div class="dash-widget widget-2col" id="widget-snmp-alerts" data-widget-id="snmp-alerts">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('snmp-alerts')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-bell" style="color:#e06820"></i> SNMP-Meldungen</span>
+      <div class="d-flex align-items-center gap-1">
+        <span id="snmp-alerts-badge" class="badge bg-danger" style="display:none"></span>
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-snmp" onclick="openAlertsOverview('snmp')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-snmp" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('snmp')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="snmp-alerts-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="snmp-alerts"></div>
+  </div>
+</div>
+
+<!-- Widget: SNMP Traps -->
+<div class="dash-widget widget-2col" id="widget-snmp-traps" data-widget-id="snmp-traps">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('snmp-traps')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-lightning-charge" style="color:#a855f7"></i> SNMP Traps</span>
+      <div class="d-flex align-items-center gap-1">
+        <select id="snmp-trap-hours" class="form-select form-select-sm py-0" style="width:auto;font-size:.75rem" onchange="loadTrapSummary()">
+          <option value="1">1h</option>
+          <option value="6">6h</option>
+          <option value="24" selected>24h</option>
+          <option value="72">72h</option>
+        </select>
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-snmp_trap" onclick="openAlertsOverview('snmp_trap')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-snmp_trap" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('snmp_trap')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+        <button class="btn btn-sm btn-link p-0 text-info" onclick="openTrapDetails()" title="Details anzeigen"><i class="bi bi-list-ul"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="snmp-traps-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="snmp-traps"></div>
+  </div>
+</div>
+
+<!-- Widget: TCP-Port Check -->
+<div class="dash-widget widget-2col" id="widget-tcp-check" data-widget-id="tcp-check">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('tcp-check')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-plug text-info"></i> TCP-Port Check</span>
+      <div class="d-flex align-items-center gap-1">
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-tcp" onclick="openAlertsOverview('tcp')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-tcp" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('tcp')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="tcp-check-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="tcp-check"></div>
+  </div>
+</div>
+
+<!-- Widget: HTTP/HTTPS Check -->
+<div class="dash-widget widget-2col" id="widget-http-check" data-widget-id="http-check">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('http-check')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-globe2 text-info"></i> HTTP/HTTPS Check</span>
+      <div class="d-flex align-items-center gap-1">
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-http_check" onclick="openAlertsOverview('http_check')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-http_check" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('http_check')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="http-check-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="http-check"></div>
+  </div>
+</div>
+
+<!-- Widget: SSH Banner-Check -->
+<div class="dash-widget widget-2col" id="widget-ssh-check" data-widget-id="ssh-check">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('ssh-check')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-terminal text-info"></i> SSH Banner-Check</span>
+      <div class="d-flex align-items-center gap-1">
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-ssh" onclick="openAlertsOverview('ssh')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-ssh" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('ssh')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="ssh-check-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="ssh-check"></div>
+  </div>
+</div>
+
+<!-- Widget: NetFlow / sFlow -->
+<div class="dash-widget widget-2col" id="widget-netflow" data-widget-id="netflow">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('netflow')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-diagram-3 text-info"></i> NetFlow / sFlow – Top Talker</span>
+      <div class="d-flex align-items-center gap-1">
+        <select id="netflow-hours" class="form-select form-select-sm py-0" style="width:auto;font-size:.75rem" onchange="loadNetflow()">
+          <option value="1">1h</option>
+          <option value="6">6h</option>
+          <option value="24" selected>24h</option>
+          <option value="72">3d</option>
+        </select>
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-netflow" onclick="openAlertsOverview('netflow')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-netflow" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('netflow')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="netflow-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="netflow"></div>
+  </div>
+</div>
+
+<!-- Widget: DNS / URL Monitor -->
+<div class="dash-widget widget-2col" id="widget-dns-monitor" data-widget-id="dns-monitor">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('dns-monitor')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-globe text-warning"></i> URL-Monitor (DNS)</span>
+      <div class="d-flex align-items-center gap-1">
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-dns" onclick="openAlertsOverview('dns')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-dns" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('dns')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+        <button class="btn btn-sm btn-link p-0 text-muted" onclick="openDnsManage()" title="URLs verwalten"><i class="bi bi-gear"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-2 resizable-body" id="dns-monitor-body" style="overflow-y:auto">
+      <div class="text-center text-muted small py-2">Lade...</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="dns-monitor"></div>
+  </div>
+</div>
+
+<!-- Widget: Device Table (always full-width) -->
+<div class="dash-widget widget-full" id="widget-device-table" data-widget-id="device-table">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-3 d-flex justify-content-between align-items-center" style="font-size:.85rem">
+      <span><i class="bi bi-hdd-network"></i> Geräteübersicht</span>
+      <a href="/devices" class="btn btn-sm btn-outline-warning" style="font-size:.75rem">
+        <i class="bi bi-plus-lg"></i> Gerät hinzufügen
+      </a>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0 table-sm">
+          <thead>
+            <tr>
+              <th></th><th>Name</th><th>IP-Adresse</th><th>Typ</th>
+              <th>Status</th><th>Latenz</th><th>Zuletzt gesehen</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="device-tbody">
+            <tr><td colspan="8" class="text-center text-muted py-3">Lade...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /widget-container -->
+<!-- Notification Config Modal -->
+<div class="modal fade" id="notifModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
+    <div class="modal-content bg-dark border-secondary text-light">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title"><i class="bi bi-envelope text-warning me-1"></i> <span id="notif-modal-title">Benachrichtigungen</span></h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-3" id="notif-modal-body">
+        <div class="text-center text-muted small py-3">Lade...</div>
+      </div>
+      <div class="modal-footer border-secondary py-2">
+        <span id="notif-modal-msg" class="small me-auto"></span>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Schließen</button>
+        <button type="button" class="btn btn-sm btn-warning" onclick="saveNotifRule()">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DNS Manage Modal -->
+<div class="modal fade" id="dnsManageModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:560px">
+    <div class="modal-content bg-dark border-secondary text-light">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title"><i class="bi bi-globe text-warning me-1"></i> URL-Monitor verwalten</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-2" id="dns-manage-body">
+        <div class="text-center text-muted small py-3">Lade...</div>
+      </div>
+      <div class="modal-footer border-secondary py-2">
+        <button class="btn btn-sm btn-outline-success" onclick="showAddDnsForm()"><i class="bi bi-plus-lg"></i> URL hinzufügen</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Schließen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SNMP Trap Details Offcanvas -->
+<div class="offcanvas offcanvas-end bg-dark border-secondary" tabindex="-1" id="trapOffcanvas" style="width:min(720px,96vw)">
+  <div class="offcanvas-header border-bottom border-secondary">
+    <h5 class="offcanvas-title" style="color:#a855f7">
+      <i class="bi bi-lightning-charge"></i> SNMP Traps
+      <span id="trap-oc-count" class="badge bg-secondary ms-2" style="font-size:.7rem"></span>
+    </h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+    <div class="p-2 border-bottom border-secondary d-flex gap-2 align-items-center flex-wrap">
+      <select id="trap-oc-hours" class="form-select form-select-sm" style="width:auto" onchange="reloadTrapDetails()">
+        <option value="1">1h</option>
+        <option value="6">6h</option>
+        <option value="24" selected>24h</option>
+        <option value="72">72h</option>
+      </select>
+      <input id="trap-oc-filter" type="text" class="form-control form-control-sm" style="width:200px" placeholder="Filter (OID, Gerät, IP...)" oninput="filterTraps()">
+      <span class="text-muted small ms-auto" id="trap-oc-filtered"></span>
+    </div>
+    <div id="trap-list" style="font-size:.8rem;overflow-y:auto;max-height:calc(100vh - 140px)"></div>
+  </div>
+</div>
+
+<!-- Syslog Details Offcanvas -->
+<div class="offcanvas offcanvas-end bg-dark border-secondary" tabindex="-1" id="syslogOffcanvas" style="width:min(680px,96vw)">
+  <div class="offcanvas-header border-bottom border-secondary">
+    <h5 class="offcanvas-title text-warning">
+      <i class="bi bi-journal-text"></i>
+      Syslog – <span id="oc-sev-title">Alle</span>
+    </h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+    <!-- Search inside offcanvas -->
+    <div class="p-2 border-bottom border-secondary">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-dark border-secondary text-muted"><i class="bi bi-search"></i></span>
+        <input type="text" id="oc-search" class="form-control bg-dark border-secondary text-light"
+          placeholder="Filtern…" oninput="filterOcLocal()">
+      </div>
+    </div>
+    <div id="oc-count" class="px-3 py-1 text-muted border-bottom border-secondary" style="font-size:.72rem"></div>
+    <div id="oc-list" style="overflow-y:auto;max-height:calc(100vh - 160px)">
+      <div class="text-center text-muted py-4">Lade...</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="/static/js/dashboard.js?v={{ APP_VERSION }}"></script>
+<script>
+// ── Syslog Widget ─────────────────────────────────────────────
+const DASH_SEV = {
+  emerg:   {color:'#dc3545', label:'Emerg'},
+  alert:   {color:'#dc3545', label:'Alert'},
+  crit:    {color:'#c82333', label:'Crit'},
+  err:     {color:'#fd7e14', label:'Error'},
+  warning: {color:'#ffc107', label:'Warn'},
+  notice:  {color:'#0dcaf0', label:'Notice'},
+  info:    {color:'#6c757d', label:'Info'},
+  debug:   {color:'#444',    label:'Debug'},
+};
+const SEV_ORDER = ['emerg','alert','crit','err','warning','notice','info','debug'];
+
+let _ocAllMsgs = [];
+
+async function loadSyslogSummary() {
+  const hours = document.getElementById('syslog-summary-hours').value;
+  const r = await fetch(`/api/dashboard/syslog-summary?hours=${hours}`);
+  if (!r.ok) return;
+  const stats = await r.json();
+  const body = document.getElementById('syslog-summary-body');
+
+  body.innerHTML = `<div class="d-flex flex-wrap gap-2 justify-content-center py-1">
+    ${SEV_ORDER.map(s => {
+      const cfg   = DASH_SEV[s];
+      const count = stats[s] || 0;
+      const empty = count === 0;
+      const color = empty ? '#444' : cfg.color;
+      const click = empty ? '' : `onclick="openSyslogDetail('${s}')"`;
+      return `<div class="text-center" style="${empty ? '' : 'cursor:pointer'}" ${click}>
+        <div style="
+          width:52px;height:52px;border-radius:50%;
+          background:${color}22;
+          border:2px solid ${color};
+          display:flex;align-items:center;justify-content:center;
+          font-size:1rem;font-weight:700;color:${color};
+          margin:0 auto;transition:transform .15s;
+          ${empty ? 'opacity:.35' : ''}
+        " ${empty ? '' : `onmouseover="this.style.transform='scale(1.12)'" onmouseout="this.style.transform='scale(1)'"`}
+           title="${cfg.label}: ${count} Nachrichten">
+          ${count}
+        </div>
+        <div style="font-size:.62rem;margin-top:3px;color:${color}">${cfg.label}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+async function openSyslogDetail(sev) {
+  document.getElementById('oc-sev-title').textContent =
+    sev ? (DASH_SEV[sev]?.label || sev) : 'Alle';
+  document.getElementById('oc-search').value = '';
+  document.getElementById('oc-list').innerHTML = '<div class="text-center text-muted py-4">Lade...</div>';
+  document.getElementById('oc-count').textContent = '';
+
+  const hours = document.getElementById('syslog-summary-hours').value;
+  new bootstrap.Offcanvas(document.getElementById('syslogOffcanvas')).show();
+
+  const url = `/api/syslog/all?hours=${hours}&limit=300${sev ? '&severity='+sev : ''}`;
+  const r = await fetch(url);
+  if (!r.ok) return;
+  _ocAllMsgs = await r.json();
+  renderOcList(_ocAllMsgs);
+}
+
+function filterOcLocal() {
+  const term = document.getElementById('oc-search').value.toLowerCase();
+  const filtered = term
+    ? _ocAllMsgs.filter(m =>
+        m.message.toLowerCase().includes(term) ||
+        (m.device_name||'').toLowerCase().includes(term) ||
+        (m.hostname||'').toLowerCase().includes(term))
+    : _ocAllMsgs;
+  renderOcList(filtered);
+}
+
+function renderOcList(msgs) {
+  const countEl = document.getElementById('oc-count');
+  countEl.textContent = `${msgs.length} Nachrichten`;
+  if (!msgs.length) {
+    document.getElementById('oc-list').innerHTML =
+      '<p class="text-center text-muted py-4">Keine Nachrichten.</p>';
+    return;
+  }
+  document.getElementById('oc-list').innerHTML = msgs.map(m => {
+    const cfg        = DASH_SEV[m.severity_name] || DASH_SEV.info;
+    const ts         = new Date(m.received_at + 'Z').toLocaleString('de-DE');
+    const canResolve = m.severity <= 4;
+    return `<div class="px-3 py-2 border-bottom border-secondary" id="oc-msg-${m.id}"
+                 style="font-size:.77rem;border-left:3px solid ${cfg.color} !important">
+      <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-1">
+        <div class="d-flex gap-2 align-items-center">
+          <span class="badge" style="background:${cfg.color};color:#000;font-size:.65rem">${m.severity_name}</span>
+          <a href="/devices/${m.device_id}" class="text-warning text-decoration-none fw-semibold small">
+            <i class="bi bi-hdd-network"></i> ${escD(m.device_name)}
+          </a>
+          <span class="text-muted small">${escD(m.device_ip)}</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted" style="font-size:.68rem;white-space:nowrap">${ts}</span>
+          ${canResolve ? `<button class="btn btn-outline-success btn-sm py-0 px-1" style="font-size:.65rem" onclick="resolveOcMsg(${m.id})" title="Als gelöst markieren"><i class="bi bi-check-lg"></i> Gelöst</button>` : ''}
+        </div>
+      </div>
+      <code class="text-light" style="word-break:break-all;font-size:.72rem">${escD(m.message)}</code>
+    </div>`;
+  }).join('');
+}
+
+async function resolveOcMsg(msgId) {
+  await fetch(`/api/syslog/messages/${msgId}`, {method: 'DELETE'});
+  _ocAllMsgs = _ocAllMsgs.filter(m => m.id !== msgId);
+  filterOcLocal();
+  loadSyslogSummary();
+}
+
+function escD(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── SNMP-Meldungen Widget ──────────────────────────────────────
+const _SEV_ICON = {
+  critical: '<i class="bi bi-circle-fill text-danger me-1" style="font-size:.6rem"></i>',
+  warning:  '<i class="bi bi-exclamation-triangle-fill text-warning me-1" style="font-size:.65rem"></i>',
+  info:     '<i class="bi bi-info-circle-fill text-info me-1" style="font-size:.65rem"></i>',
+};
+
+async function loadSnmpAlertsDash() {
+  const r = await fetch('/api/snmp-alerts/triggered');
+  if (!r.ok) return;
+  const alerts = await r.json();
+  const body  = document.getElementById('snmp-alerts-body');
+  const badge = document.getElementById('snmp-alerts-badge');
+  if (!alerts.length) {
+    body.innerHTML = '<div class="text-center text-muted small py-2"><i class="bi bi-check-circle text-success me-1"></i>Keine aktiven Meldungen</div>';
+    badge.style.display = 'none';
+    return;
+  }
+  // Group by severity for badge
+  const nCrit = alerts.filter(a => a.trig_severity === 'critical').length;
+  const nWarn = alerts.filter(a => a.trig_severity === 'warning').length;
+  badge.textContent = nCrit ? `${nCrit} Kritisch` : `${nWarn} Warnung`;
+  badge.className   = `badge ${nCrit ? 'bg-danger' : 'bg-warning text-dark'}`;
+  badge.style.display = '';
+
+  body.innerHTML = alerts.map(a => {
+    const icon = _SEV_ICON[a.trig_severity] || _SEV_ICON.info;
+    const ts   = a.triggered_at ? new Date(a.triggered_at + 'Z').toLocaleString('de-DE') : '';
+    const msg  = (a.threshold !== null && a.threshold !== undefined && a.threshold !== '')
+                   ? `${escD(a.label)} ${escD(a.operator)} ${escD(a.threshold)}`
+                   : `${escD(a.label)}: nicht lesbar`;
+    return `<div class="d-flex align-items-start gap-2 border-bottom border-secondary py-1" style="font-size:.77rem">
+      <div style="min-width:14px;padding-top:2px">${icon}</div>
+      <div class="flex-grow-1 overflow-hidden">
+        <a href="/devices/${a.device_id}" class="text-warning text-decoration-none fw-semibold">${escD(a.device_name)}</a>
+        <span class="text-muted ms-1">${escD(a.ip_address)}</span>
+        <div class="text-light text-truncate">${msg}</div>
+        ${ts ? `<div class="text-muted" style="font-size:.65rem">seit ${ts}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── SNMP Traps Widget ──────────────────────────────────────────
+let _allTraps = [];
+
+async function loadTrapSummary() {
+  const hours = document.getElementById('snmp-trap-hours').value;
+  const r = await fetch(`/api/snmp-traps/summary?hours=${hours}`);
+  if (!r.ok) return;
+  const data = await r.json();
+  const body = document.getElementById('snmp-traps-body');
+  if (!data.total) {
+    body.innerHTML = '<div class="text-center text-muted small py-2"><i class="bi bi-check-circle text-success me-1"></i>Keine Traps empfangen</div>';
+    return;
+  }
+  const rows = data.by_device.map(d =>
+    `<div class="d-flex justify-content-between align-items-center border-bottom border-secondary py-1 px-1" style="font-size:.78rem">
+      <span style="color:#a855f7"><i class="bi bi-lightning-charge me-1"></i>${escD(d.label)}</span>
+      <span class="badge bg-secondary">${d.cnt}</span>
+    </div>`
+  ).join('');
+  body.innerHTML = `<div class="px-1 pt-1 pb-0 text-muted" style="font-size:.7rem">Gesamt: ${data.total} Traps</div>${rows}`;
+}
+
+async function openTrapDetails() {
+  const hours = document.getElementById('snmp-trap-hours').value;
+  document.getElementById('trap-oc-hours').value = hours;
+  new bootstrap.Offcanvas(document.getElementById('trapOffcanvas')).show();
+  await reloadTrapDetails();
+}
+
+async function reloadTrapDetails() {
+  const hours = document.getElementById('trap-oc-hours').value;
+  document.getElementById('trap-list').innerHTML = '<div class="text-center text-muted py-4">Lade…</div>';
+  const r = await fetch(`/api/snmp-traps/all?hours=${hours}&limit=500`);
+  if (!r.ok) return;
+  _allTraps = await r.json();
+  filterTraps();
+}
+
+function filterTraps() {
+  const term = (document.getElementById('trap-oc-filter').value || '').toLowerCase();
+  const filtered = term
+    ? _allTraps.filter(t =>
+        (t.trap_oid||'').toLowerCase().includes(term) ||
+        (t.sender_ip||'').toLowerCase().includes(term) ||
+        (t.device_name||'').toLowerCase().includes(term) ||
+        (t.community||'').toLowerCase().includes(term))
+    : _allTraps;
+
+  document.getElementById('trap-oc-count').textContent = _allTraps.length;
+  document.getElementById('trap-oc-filtered').textContent =
+    term ? `${filtered.length} von ${_allTraps.length}` : '';
+
+  const list = document.getElementById('trap-list');
+  if (!filtered.length) {
+    list.innerHTML = '<div class="text-center text-muted py-4">Keine Traps gefunden.</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(t => {
+    const ts = t.received_at ? new Date(t.received_at + 'Z').toLocaleString('de-DE') : '';
+    const dev = t.device_name ? `<a href="/devices/${t.device_id}" class="text-decoration-none" style="color:#a855f7">${escD(t.device_name)}</a>` : escD(t.sender_ip);
+    const vbs = (t.varbinds||[]).slice(0,5).map(v =>
+      `<div class="text-muted" style="font-size:.72rem;word-break:break-all"><span class="text-secondary">${escD(v.oid)}</span> = ${escD(v.value)}</div>`
+    ).join('');
+    const more = (t.varbinds||[]).length > 5 ? `<div class="text-muted" style="font-size:.7rem">…+${(t.varbinds.length-5)} weitere</div>` : '';
+    return `<div class="border-bottom border-secondary px-3 py-2">
+      <div class="d-flex justify-content-between align-items-start mb-1">
+        <div>${dev} <span class="text-muted ms-1">${escD(t.sender_ip)}</span>
+          <span class="badge bg-secondary ms-1" style="font-size:.6rem">${escD(t.version)}</span>
+          <span class="badge ms-1" style="background:#a855f7;font-size:.6rem">${escD(t.community)}</span>
+        </div>
+        <span class="text-muted" style="font-size:.7rem;white-space:nowrap">${ts}</span>
+      </div>
+      <div class="text-light mb-1" style="word-break:break-all"><i class="bi bi-lightning-charge me-1" style="color:#a855f7"></i>${escD(t.trap_oid)}</div>
+      ${vbs}${more}
+    </div>`;
+  }).join('');
+}
+
+// ── TCP-Port Check Widget ──────────────────────────────────────
+
+async function loadTcpCheck() {
+  if (isWidgetHidden('tcp-check')) return;
+  const body = document.getElementById('tcp-check-body');
+  if (!body) return;
+  try {
+    const r = await fetch('/api/dashboard/tcp-check');
+    if (!r.ok) return;
+    const devices = await r.json();
+    if (!devices.length) {
+      body.innerHTML = '<div class="text-center text-muted small py-3">Keine Geräte mit TCP-Überwachung konfiguriert.</div>';
+      return;
+    }
+    body.innerHTML = `<table class="table table-dark table-sm mb-0" style="font-size:.78rem">
+      <thead><tr><th>Gerät</th><th>IP</th><th>Port</th><th>Status</th><th>Verbindung</th><th class="text-muted">Zuletzt</th></tr></thead>
+      <tbody>${devices.map(d => {
+        const open = d.status === 'open';
+        const unknown = !d.status;
+        const badge = open
+          ? '<span class="badge bg-success">Offen</span>'
+          : unknown
+            ? '<span class="badge bg-secondary">Unbekannt</span>'
+            : '<span class="badge bg-danger">Geschlossen</span>';
+        const ms = d.connect_ms != null ? `<span class="text-info">${d.connect_ms.toFixed(1)} ms</span>` : '<span class="text-muted">–</span>';
+        const ts = d.recorded_at ? new Date(d.recorded_at + 'Z').toLocaleString('de-DE', {dateStyle:'short',timeStyle:'short'}) : '–';
+        return `<tr>
+          <td class="fw-semibold"><a href="/devices/${d.id}" class="text-decoration-none text-light">${escHtml(d.name)}</a></td>
+          <td class="font-monospace text-muted" style="font-size:.72rem">${escHtml(d.ip_address)}</td>
+          <td class="text-muted">${d.port}</td>
+          <td>${badge}</td>
+          <td>${ms}</td>
+          <td class="text-muted" style="font-size:.7rem">${ts}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } catch(e) { console.error(e); }
+}
+
+// ── HTTP/HTTPS Check Widget ────────────────────────────────────
+
+async function loadHttpCheck() {
+  if (isWidgetHidden('http-check')) return;
+  const body = document.getElementById('http-check-body');
+  if (!body) return;
+  try {
+    const r = await fetch('/api/dashboard/http-check');
+    if (!r.ok) return;
+    const devices = await r.json();
+    if (!devices.length) {
+      body.innerHTML = '<div class="text-center text-muted small py-3">Keine Geräte mit HTTP-Überwachung konfiguriert.</div>';
+      return;
+    }
+    body.innerHTML = `<table class="table table-dark table-sm mb-0" style="font-size:.78rem">
+      <thead><tr><th>Gerät</th><th>URL</th><th>Status</th><th>Antwortzeit</th><th class="text-muted">Zuletzt</th></tr></thead>
+      <tbody>${devices.map(d => {
+        const code = parseInt(d.status_code);
+        const ok = code >= 200 && code < 400;
+        const unknown = !d.status_code;
+        const badge = unknown
+          ? '<span class="badge bg-secondary">Unbekannt</span>'
+          : ok
+            ? `<span class="badge bg-success">${escHtml(d.status_code)}</span>`
+            : `<span class="badge bg-danger">${escHtml(d.status_code)}</span>`;
+        const ms = d.response_ms != null ? `<span class="text-info">${d.response_ms.toFixed(0)} ms</span>` : '<span class="text-muted">–</span>';
+        const ts = d.recorded_at ? new Date(d.recorded_at + 'Z').toLocaleString('de-DE', {dateStyle:'short',timeStyle:'short'}) : '–';
+        return `<tr>
+          <td class="fw-semibold"><a href="/devices/${d.id}" class="text-decoration-none text-light">${escHtml(d.name)}</a></td>
+          <td class="text-muted text-truncate" style="max-width:160px" title="${escHtml(d.url||'')}">${escHtml(d.url||'–')}</td>
+          <td>${badge}</td>
+          <td>${ms}</td>
+          <td class="text-muted" style="font-size:.7rem">${ts}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } catch(e) { console.error(e); }
+}
+
+// ── SSH Banner-Check Widget ────────────────────────────────────
+
+async function loadSshCheck() {
+  if (isWidgetHidden('ssh-check')) return;
+  const body = document.getElementById('ssh-check-body');
+  if (!body) return;
+  try {
+    const r = await fetch('/api/dashboard/ssh-check');
+    if (!r.ok) return;
+    const devices = await r.json();
+    if (!devices.length) {
+      body.innerHTML = '<div class="text-center text-muted small py-3">Keine Geräte mit SSH-Überwachung konfiguriert.</div>';
+      return;
+    }
+    body.innerHTML = `<table class="table table-dark table-sm mb-0" style="font-size:.78rem">
+      <thead><tr><th>Gerät</th><th>IP</th><th>Port</th><th>Status</th><th>Banner</th><th class="text-muted">Zuletzt</th></tr></thead>
+      <tbody>${devices.map(d => {
+        const badge = d.reachable === null
+          ? '<span class="badge bg-secondary">Unbekannt</span>'
+          : d.reachable
+            ? '<span class="badge bg-success">Erreichbar</span>'
+            : '<span class="badge bg-danger">Nicht erreichbar</span>';
+        const banner = d.banner ? `<code class="text-muted" style="font-size:.7rem">${escHtml(d.banner)}</code>` : '<span class="text-muted">–</span>';
+        const ts = d.recorded_at ? new Date(d.recorded_at + 'Z').toLocaleString('de-DE', {dateStyle:'short',timeStyle:'short'}) : '–';
+        return `<tr>
+          <td class="fw-semibold"><a href="/devices/${d.id}" class="text-decoration-none text-light">${escHtml(d.name)}</a></td>
+          <td class="font-monospace text-muted" style="font-size:.72rem">${escHtml(d.ip_address)}</td>
+          <td class="text-muted">${d.port||22}</td>
+          <td>${badge}</td>
+          <td>${banner}</td>
+          <td class="text-muted" style="font-size:.7rem">${ts}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } catch(e) { console.error(e); }
+}
+
+// ── NetFlow / sFlow Widget ─────────────────────────────────────
+
+function _fmtBytes(bytes) {
+  if (bytes == null) return '–';
+  if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + ' GB';
+  if (bytes >= 1e6) return (bytes / 1e6).toFixed(2) + ' MB';
+  if (bytes >= 1e3) return (bytes / 1e3).toFixed(1) + ' KB';
+  return bytes.toFixed(0) + ' B';
+}
+
+async function loadNetflow() {
+  if (isWidgetHidden('netflow')) return;
+  const body = document.getElementById('netflow-body');
+  if (!body) return;
+  const hours = document.getElementById('netflow-hours')?.value ?? 24;
+  try {
+    const r = await fetch(`/api/dashboard/netflow-top-talkers?hours=${hours}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.talkers.length) {
+      body.innerHTML = '<div class="text-center text-muted small py-3"><i class="bi bi-info-circle me-1"></i>Keine NetFlow-Daten im gewählten Zeitraum.</div>';
+      return;
+    }
+    const avgLabel = _fmtBytes(data.avg_octets);
+    body.innerHTML = `
+      <div class="px-2 py-1 text-muted border-bottom border-secondary" style="font-size:.7rem">
+        Ø Durchsatz: <span class="text-info">${avgLabel}</span> / Gerät
+      </div>
+      <table class="table table-dark table-sm mb-0" style="font-size:.78rem">
+        <thead><tr><th>Gerät</th><th>IP</th><th>Gesamt</th><th>vs. Ø</th></tr></thead>
+        <tbody>${data.talkers.map((t, i) => {
+          const pct = t.pct_above_avg;
+          const pctColor = pct > 50 ? '#dc3545' : pct > 20 ? '#ffc107' : '#28a745';
+          const pctStr = pct > 0 ? `<span style="color:${pctColor}">+${pct}%</span>` : `<span class="text-muted">${pct}%</span>`;
+          const rank = i === 0 ? '<i class="bi bi-trophy-fill text-warning me-1" style="font-size:.7rem"></i>' : '';
+          return `<tr>
+            <td>${rank}<a href="/devices/${t.id}" class="text-decoration-none text-light fw-semibold">${escHtml(t.name)}</a></td>
+            <td class="font-monospace text-muted" style="font-size:.72rem">${escHtml(t.ip_address)}</td>
+            <td class="text-info">${_fmtBytes(t.total_octets)}</td>
+            <td>${pctStr}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+  } catch(e) { console.error(e); }
+}
+
+// Hook into dashboard loadAll
+const _origLoad = window.loadAll;
+document.addEventListener('DOMContentLoaded', () => {
+  loadSyslogSummary();
+  loadSnmpAlertsDash();
+  loadTrapSummary();
+  loadDnsMonitor();
+  loadTcpCheck();
+  loadHttpCheck();
+  loadSshCheck();
+  loadNetflow();
+  setInterval(loadSyslogSummary, 30000);
+  setInterval(loadSnmpAlertsDash, 30000);
+  setInterval(loadTrapSummary, 60000);
+  setInterval(loadDnsMonitor, 30000);
+  setInterval(loadTcpCheck, 60000);
+  setInterval(loadHttpCheck, 60000);
+  setInterval(loadSshCheck, 60000);
+  setInterval(loadNetflow, 60000);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="de" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}FoxEx Network Monitor{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/static/css/style.css?v={{ APP_VERSION }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+{% if request.session.get('user_id') %}
+<nav class="navbar navbar-expand-lg navbar-dark position-relative px-3"
+     style="min-height:88px; background:#000 !important; border-bottom:1px solid #1c1c1c !important; box-shadow:0 2px 12px rgba(0,0,0,0.9)">
+
+  <!-- Left: Page links -->
+  <div class="d-flex align-items-center gap-1">
+    <a class="nav-link text-light px-2 {% if request.url.path == '/dashboard' %}active fw-semibold{% endif %}" href="/dashboard">
+      <i class="bi bi-speedometer2"></i> Dashboard
+    </a>
+    <a class="nav-link text-light px-2 {% if '/devices' in request.url.path %}active fw-semibold{% endif %}" href="/devices">
+      <i class="bi bi-hdd-network"></i> Geräte
+    </a>
+    <a class="nav-link text-light px-2 {% if request.url.path == '/topology' %}active fw-semibold{% endif %}" href="/topology">
+      <i class="bi bi-diagram-3"></i> Topologie
+    </a>
+    <a class="nav-link text-light px-2 {% if '/reports' in request.url.path %}active fw-semibold{% endif %}" href="/reports/sla">
+      <i class="bi bi-graph-up-arrow"></i> Berichte
+    </a>
+  </div>
+
+  <!-- Center: Logo (absolutely centered) -->
+  <a class="navbar-brand position-absolute start-50 translate-middle-x text-center text-decoration-none" href="/dashboard">
+    <img src="/static/icons/logo.png" height="62" alt="FoxEx Logo" style="object-fit:contain;max-width:220px;display:block;margin:0 auto">
+    <div style="font-size:.65rem;letter-spacing:.18em;color:#5a6070;margin-top:2px;text-transform:uppercase">Network Monitor</div>
+  </a>
+
+  <!-- Right: Actions + User -->
+  <div class="d-flex align-items-center gap-2 ms-auto">
+    <!-- Active Alerts Badge -->
+    <button class="btn btn-sm btn-link text-light p-1 position-relative" id="nav-alert-btn"
+            onclick="openAlertsOverview()" title="Aktive Meldungen" style="display:none">
+      <i class="bi bi-bell-fill" style="font-size:1.1rem;color:#dc3545"></i>
+      <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+            id="nav-alert-count" style="font-size:.58rem;line-height:1.1">0</span>
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" id="global-check-btn" onclick="triggerAllChecks()" title="Alle Prüfungen auslösen">
+      <i class="bi bi-arrow-repeat"></i> Alle prüfen
+    </button>
+    <div class="dropdown">
+      <a class="nav-link dropdown-toggle text-light" href="#" data-bs-toggle="dropdown">
+        <i class="bi bi-person-circle"></i> {{ request.session.get('username') }}
+      </a>
+      <ul class="dropdown-menu dropdown-menu-end bg-dark border-secondary" style="min-width:200px">
+        <li><h6 class="dropdown-header text-muted small">
+          {{ request.session.get('full_name') or request.session.get('username') }}
+          {% set _role = request.session.get('role') %}
+          <span class="badge ms-1 {% if _role == 'admin' %}bg-warning text-dark{% elif _role == 'operator' %}bg-info text-dark{% else %}bg-secondary{% endif %}" style="font-size:.6rem">
+            {% if _role == 'admin' %}Admin{% elif _role == 'operator' %}Operator{% else %}Benutzer{% endif %}
+          </span>
+        </h6></li>
+        <li><hr class="dropdown-divider border-secondary"></li>
+
+        <li>
+          <a class="dropdown-item text-light" href="#" onclick="openProfileModal(); return false">
+            <i class="bi bi-person-gear"></i> Profileinstellungen
+          </a>
+        </li>
+
+        {% if request.session.get('role') == 'admin' %}
+        <li>
+          <a class="dropdown-item text-light" href="#" onclick="openUserMgmt(); return false">
+            <i class="bi bi-people"></i> Benutzerverwaltung
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item text-light" href="#" onclick="openSettingsModal(); return false">
+            <i class="bi bi-gear"></i> Einstellungen
+          </a>
+        </li>
+        {% endif %}
+
+        <li>
+          <a class="dropdown-item text-light" href="#" onclick="openInfoModal(); return false">
+            <i class="bi bi-info-circle"></i> Info
+          </a>
+        </li>
+
+        <li><hr class="dropdown-divider border-secondary"></li>
+        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Abmelden</a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Profile Modal ────────────────────────────────────────── -->
+<div class="modal fade" id="profileModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-person-gear text-warning"></i> Profileinstellungen</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Vollständiger Name</label>
+          <input type="text" id="prof-fullname" class="form-control"
+            value="{{ request.session.get('full_name') or '' }}" placeholder="Max Mustermann">
+        </div>
+        <hr class="border-secondary">
+        <p class="text-muted small mb-2">Passwort ändern (optional)</p>
+        <div class="mb-3">
+          <label class="form-label">Aktuelles Passwort</label>
+          <input type="password" id="prof-cur-pw" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Neues Passwort</label>
+          <input type="password" id="prof-new-pw" class="form-control">
+        </div>
+        <div id="prof-msg" class="small"></div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-warning" onclick="saveProfile()">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── User Management Modal ────────────────────────────────── -->
+<div class="modal fade" id="userMgmtModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-people text-warning"></i> Benutzerverwaltung</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- User list -->
+        <table class="table table-dark table-sm mb-3" id="user-table">
+          <thead><tr><th>Benutzername</th><th>Name</th><th>Rolle</th><th>Erstellt</th><th></th></tr></thead>
+          <tbody id="user-tbody"><tr><td colspan="5" class="text-center text-muted">Lade...</td></tr></tbody>
+        </table>
+        <hr class="border-secondary">
+        <h6><i class="bi bi-person-plus text-warning"></i> Neuer Benutzer</h6>
+        <div class="row g-2">
+          <div class="col-md-3">
+            <input type="text" id="nu-username" class="form-control form-control-sm" placeholder="Benutzername *">
+          </div>
+          <div class="col-md-3">
+            <input type="text" id="nu-fullname" class="form-control form-control-sm" placeholder="Vollständiger Name">
+          </div>
+          <div class="col-md-3">
+            <input type="password" id="nu-password" class="form-control form-control-sm" placeholder="Passwort * (min. 6 Zeichen)">
+          </div>
+          <div class="col-md-2">
+            <select id="nu-role" class="form-select form-select-sm">
+              <option value="user">Benutzer</option>
+              <option value="operator">Operator</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="col-md-1">
+            <button class="btn btn-warning btn-sm w-100" onclick="createUser()"><i class="bi bi-plus-lg"></i></button>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" id="nu-force-pw">
+              <label class="form-check-label small text-muted" for="nu-force-pw">Kennwortänderung bei Erstanmeldung erzwingen</label>
+            </div>
+          </div>
+        </div>
+        <div id="usermgmt-msg" class="small mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Force Password Change Modal ──────────────────────────── -->
+<div class="modal fade" id="forcePwModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-warning">
+      <div class="modal-header border-warning">
+        <h5 class="modal-title text-warning"><i class="bi bi-shield-lock me-2"></i>Passwort ändern</h5>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">Dein Administrator hat eine Passwortänderung bei dieser Anmeldung gefordert. Bitte wähle jetzt ein neues Passwort.</p>
+        <div class="mb-3">
+          <label class="form-label small">Aktuelles Passwort</label>
+          <input type="password" id="fpc-current" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small">Neues Passwort <span class="text-muted">(min. 6 Zeichen)</span></label>
+          <input type="password" id="fpc-new" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small">Neues Passwort bestätigen</label>
+          <input type="password" id="fpc-confirm" class="form-control">
+        </div>
+        <div id="fpc-msg" class="small"></div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-warning" onclick="submitForcePwChange()">
+          <i class="bi bi-check-lg me-1"></i>Passwort setzen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Settings Modal ──────────────────────────────────────── -->
+<div class="modal fade" id="settingsModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-gear text-warning"></i> Einstellungen</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <ul class="nav nav-tabs border-secondary px-3 pt-2" id="settingsTabs" role="tablist">
+          <li class="nav-item"><button class="nav-link active text-light" data-bs-toggle="tab" data-bs-target="#stab-system" type="button"><i class="bi bi-server me-1"></i>Geräteeinstellungen</button></li>
+          <li class="nav-item"><button class="nav-link text-light" data-bs-toggle="tab" data-bs-target="#stab-auth" type="button" onclick="loadSettingsAuth()"><i class="bi bi-shield-lock me-1"></i>Authentifizierung</button></li>
+          <li class="nav-item"><button class="nav-link text-light" data-bs-toggle="tab" data-bs-target="#stab-proto" type="button" onclick="loadSettingsProto()"><i class="bi bi-diagram-3 me-1"></i>Protokolle</button></li>
+          <li class="nav-item"><button class="nav-link text-light" data-bs-toggle="tab" data-bs-target="#stab-notify" type="button" onclick="loadSettingsEmail()"><i class="bi bi-envelope me-1"></i>Meldungen</button></li>
+          <li class="nav-item"><button class="nav-link text-light" data-bs-toggle="tab" data-bs-target="#stab-maint" type="button" onclick="loadMaintenanceWindows()"><i class="bi bi-wrench me-1"></i>Wartungsfenster</button></li>
+        </ul>
+
+        <div class="tab-content p-3">
+
+          <!-- ── Tab: System ── -->
+          <div class="tab-pane fade show active" id="stab-system">
+            <div id="sys-info-spinner" class="text-center py-4"><div class="spinner-border text-warning"></div></div>
+            <div id="sys-info-body" style="display:none">
+              <div class="row g-3">
+                <!-- Hostname -->
+                <div class="col-12"><h6 class="text-warning border-bottom border-secondary pb-1"><i class="bi bi-pc-display me-1"></i>System</h6></div>
+                <div class="col-md-4">
+                  <label class="form-label small">Hostname</label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" id="s-hostname" class="form-control">
+                    <button class="btn btn-outline-warning" onclick="saveSysHostname()"><i class="bi bi-check-lg"></i></button>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">IP-Adresse (CIDR)</label>
+                  <input type="text" id="s-ip" class="form-control form-control-sm bg-secondary border-0" readonly>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Standard-Gateway</label>
+                  <input type="text" id="s-gateway" class="form-control form-control-sm bg-secondary border-0" readonly>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Systemzeit</label>
+                  <input type="text" id="s-time" class="form-control form-control-sm bg-secondary border-0" readonly>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">NTP-Server</label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" id="s-ntp" class="form-control" placeholder="z.B. pool.ntp.org">
+                    <button class="btn btn-outline-warning" onclick="saveSysNtp()"><i class="bi bi-check-lg"></i></button>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">DNS-Server <small class="text-muted">(kommagetrennt)</small></label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" id="s-dns" class="form-control" placeholder="z.B. 8.8.8.8, 1.1.1.1">
+                    <button class="btn btn-outline-warning" onclick="saveSysDns()"><i class="bi bi-check-lg"></i></button>
+                  </div>
+                </div>
+
+                <!-- App Settings -->
+                <div class="col-12 mt-2"><h6 class="text-warning border-bottom border-secondary pb-1"><i class="bi bi-sliders2 me-1"></i>Anwendung</h6></div>
+                <div class="col-md-4">
+                  <label class="form-label small">App-Port <small class="text-muted">(Neustart erforderlich)</small></label>
+                  <div class="input-group input-group-sm">
+                    <input type="number" id="s-port" class="form-control" min="1024" max="65535">
+                    <button class="btn btn-outline-warning" onclick="saveSysPort()"><i class="bi bi-check-lg"></i></button>
+                  </div>
+                </div>
+              </div>
+              <div id="sys-msg" class="mt-2 small"></div>
+            </div>
+          </div>
+
+          <!-- ── Tab: Auth ── -->
+          <div class="tab-pane fade" id="stab-auth">
+            <h6 class="text-warning border-bottom border-secondary pb-1"><i class="bi bi-shield-lock me-1"></i>RADIUS-Server</h6>
+            <div class="row g-3">
+              <div class="col-md-3">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="s-radius-on">
+                  <label class="form-check-label" for="s-radius-on">RADIUS aktiviert</label>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small">Server / IP</label>
+                <input type="text" id="s-radius-srv" class="form-control form-control-sm" placeholder="192.168.1.100">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small">Port</label>
+                <input type="number" id="s-radius-port" class="form-control form-control-sm" value="1812">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small">Timeout (Sek.)</label>
+                <input type="number" id="s-radius-timeout" class="form-control form-control-sm" value="5" min="1">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small">Shared Secret</label>
+                <input type="password" id="s-radius-secret" class="form-control form-control-sm" placeholder="•••••">
+              </div>
+              <div class="col-12">
+                <button class="btn btn-warning btn-sm" onclick="saveAuthSettings()"><i class="bi bi-floppy me-1"></i>Speichern</button>
+                <span id="auth-msg" class="ms-2 small"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Tab: Protocols ── -->
+          <div class="tab-pane fade" id="stab-proto">
+            <!-- ICMP -->
+            <h6 class="text-warning border-bottom border-secondary pb-1"><i class="bi bi-broadcast me-1"></i>ICMP</h6>
+            <div class="row g-3 mb-3">
+              <div class="col-md-3">
+                <label class="form-label small">Paketgröße (Bytes)</label>
+                <input type="number" id="s-icmp-size" class="form-control form-control-sm" min="1" max="65507" value="56">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small">Anzahl Pakete</label>
+                <input type="number" id="s-icmp-count" class="form-control form-control-sm" min="1" max="20" value="4">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small">Timeout (Sek.)</label>
+                <input type="number" id="s-icmp-timeout" class="form-control form-control-sm" min="1" max="30" value="5">
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <button class="btn btn-warning btn-sm" onclick="saveProtoSettings()">
+                <i class="bi bi-floppy me-1"></i>ICMP Einstellungen speichern
+              </button>
+              <span id="proto-msg" class="ms-2 small"></span>
+            </div>
+
+            <!-- Syslog Retention -->
+            <h6 class="text-warning border-bottom border-secondary pb-1 mt-2"><i class="bi bi-journal-text me-1"></i>Syslog – Vorhaltezeit</h6>
+            <p class="text-muted small mb-2">Meldungen ab <strong>Warnung</strong> aufwärts werden standardmäßig nie automatisch gelöscht und müssen manuell als "Gelöst" markiert werden.</p>
+            <table class="table table-dark table-sm mb-2" style="max-width:440px">
+              <thead><tr>
+                <th class="small fw-normal text-muted">Schweregrad</th>
+                <th class="small fw-normal text-muted">Wert</th>
+                <th class="small fw-normal text-muted">Einheit</th>
+              </tr></thead>
+              <tbody id="syslog-ret-tbody">
+                <tr data-sev="emerg"><td><span class="badge" style="background:#dc3545">Notfall</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+                <tr data-sev="alert"><td><span class="badge" style="background:#dc3545">Alarm</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+                <tr data-sev="crit"><td><span class="badge" style="background:#c82333">Kritisch</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+                <tr data-sev="err"><td><span class="badge" style="background:#fd7e14">Fehler</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+                <tr data-sev="warning"><td><span class="badge bg-warning text-dark">Warnung</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+                <tr data-sev="notice"><td><span class="badge bg-info text-dark">Hinweis</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+                <tr data-sev="info"><td><span class="badge bg-secondary">Info</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+                <tr data-sev="debug"><td><span class="badge" style="background:#555">Debug</span></td>
+                  <td><input type="number" class="form-control form-control-sm syslog-ret-val" min="1" style="width:70px"></td>
+                  <td><select class="form-select form-select-sm syslog-ret-unit" style="width:80px" onchange="onRetUnitChange(this)"><option value="nie">Nie</option><option value="min">Min</option><option value="h">Std</option><option value="d">Tag</option></select></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="mb-4">
+              <button class="btn btn-warning btn-sm" onclick="saveSyslogRetention()">
+                <i class="bi bi-floppy me-1"></i>Vorhaltezeit speichern
+              </button>
+              <span id="syslog-ret-msg" class="ms-2 small"></span>
+            </div>
+
+            <!-- OID Templates -->
+            <h6 class="text-warning border-bottom border-secondary pb-1 d-flex justify-content-between align-items-center">
+              <span><i class="bi bi-list-check me-1"></i>OID-Templates</span>
+              <button class="btn btn-sm btn-outline-warning py-0" onclick="toggleCreateTpl()">
+                <i class="bi bi-plus-lg"></i> Neues Template
+              </button>
+            </h6>
+            <div id="create-tpl-form" class="border border-secondary rounded p-2 mb-3" style="display:none">
+              <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                  <label class="form-label small">Name *</label>
+                  <input type="text" id="new-tpl-name" class="form-control form-control-sm" placeholder="z.B. Cisco Router Basis">
+                </div>
+                <div class="col-md-5">
+                  <label class="form-label small">Beschreibung</label>
+                  <input type="text" id="new-tpl-desc" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-2">
+                  <button class="btn btn-sm btn-success w-100" onclick="createTemplate()"><i class="bi bi-check-lg"></i> Erstellen</button>
+                </div>
+              </div>
+            </div>
+            <div id="tpl-list"></div>
+          </div>
+
+          <!-- ── Tab: Meldungen (E-Mail) ── -->
+          <div class="tab-pane fade" id="stab-notify">
+            <h6 class="text-warning border-bottom border-secondary pb-1"><i class="bi bi-envelope me-1"></i>E-Mail-Benachrichtigungen</h6>
+            <div class="row g-3">
+              <!-- Enable toggle -->
+              <div class="col-12">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="s-mail-enabled">
+                  <label class="form-check-label" for="s-mail-enabled">E-Mail-Benachrichtigungen aktiviert</label>
+                </div>
+              </div>
+
+              <!-- SMTP -->
+              <div class="col-12 mt-1"><h6 class="text-muted small border-bottom border-secondary pb-1">SMTP-Server</h6></div>
+              <div class="col-md-5">
+                <label class="form-label small">SMTP-Server / IP</label>
+                <input type="text" id="s-mail-host" class="form-control form-control-sm" placeholder="mail.example.com">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small">Port</label>
+                <input type="number" id="s-mail-port" class="form-control form-control-sm" value="587" min="1" max="65535">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small">Verschlüsselung</label>
+                <select id="s-mail-enc" class="form-select form-select-sm">
+                  <option value="starttls">STARTTLS (Port 587)</option>
+                  <option value="ssl">SSL/TLS (Port 465)</option>
+                  <option value="none">Keine (Port 25)</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small">Benutzername</label>
+                <input type="text" id="s-mail-user" class="form-control form-control-sm" placeholder="user@example.com" autocomplete="off">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small">Passwort</label>
+                <div class="input-group input-group-sm">
+                  <input type="password" id="s-mail-pass" class="form-control" placeholder="•••••" autocomplete="new-password">
+                  <button class="btn btn-outline-secondary" type="button" onclick="togglePw('s-mail-pass',this)"><i class="bi bi-eye"></i></button>
+                </div>
+              </div>
+
+              <!-- Adressen -->
+              <div class="col-12 mt-1"><h6 class="text-muted small border-bottom border-secondary pb-1">Adressen</h6></div>
+              <div class="col-md-5">
+                <label class="form-label small">Absender (Von)</label>
+                <input type="email" id="s-mail-from" class="form-control form-control-sm" placeholder="monitor@example.com">
+              </div>
+              <div class="col-md-7">
+                <label class="form-label small">Empfänger (An) <small class="text-muted">– kommagetrennt für mehrere</small></label>
+                <input type="text" id="s-mail-to" class="form-control form-control-sm" placeholder="admin@example.com, noc@example.com">
+              </div>
+
+              <!-- Info -->
+              <div class="col-12">
+                <div class="alert alert-secondary py-2 px-3 mb-0" style="font-size:.8rem">
+                  <i class="bi bi-info-circle me-1"></i>
+                  Die Ereignis-Konfiguration (welche Widgets melden) erfolgt direkt im Dashboard über das
+                  <i class="bi bi-envelope mx-1"></i>-Symbol in jedem Widget.
+                </div>
+              </div>
+
+              <!-- Buttons -->
+              <div class="col-12 d-flex gap-2 align-items-center flex-wrap">
+                <button class="btn btn-warning btn-sm" onclick="saveEmailSettings()">
+                  <i class="bi bi-floppy me-1"></i>Speichern
+                </button>
+                <button class="btn btn-outline-info btn-sm" onclick="testEmail()">
+                  <i class="bi bi-send me-1"></i>Test-E-Mail senden
+                </button>
+                <span id="mail-msg" class="small"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Tab: Wartungsfenster ── -->
+          <div class="tab-pane fade" id="stab-maint">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="text-warning mb-0"><i class="bi bi-wrench me-1"></i>Wartungsfenster</h6>
+              <button class="btn btn-sm btn-outline-warning" onclick="showAddMaintForm()">
+                <i class="bi bi-plus-lg me-1"></i>Hinzufügen
+              </button>
+            </div>
+            <p class="text-muted small mb-3">
+              Während eines aktiven Wartungsfensters werden keine E-Mail-Benachrichtigungen versandt
+              und Alerts nicht als aktiv gezählt. <em>Leer bei Gerät = gilt global für alle Geräte.</em>
+            </p>
+
+            <!-- Add/Edit Form -->
+            <div id="maint-form" class="border border-secondary rounded p-3 mb-3" style="display:none">
+              <h6 class="text-muted small mb-2" id="maint-form-title">Neues Wartungsfenster</h6>
+              <input type="hidden" id="mf-id">
+              <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                  <label class="form-label small">Name *</label>
+                  <input type="text" id="mf-name" class="form-control form-control-sm" placeholder="z.B. Nachtwartu­ng Server">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Gerät <span class="text-muted">(leer = alle)</span></label>
+                  <select id="mf-device" class="form-select form-select-sm">
+                    <option value="">— Alle Geräte (global) —</option>
+                  </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                  <div class="form-check form-switch mb-1">
+                    <input class="form-check-input" type="checkbox" id="mf-weekly">
+                    <label class="form-check-label small" for="mf-weekly">Wöchentlich</label>
+                  </div>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                  <div class="form-check form-switch mb-1">
+                    <input class="form-check-input" type="checkbox" id="mf-enabled" checked>
+                    <label class="form-check-label small" for="mf-enabled">Aktiv</label>
+                  </div>
+                </div>
+              </div>
+              <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                  <label class="form-label small">Beginn *</label>
+                  <input type="datetime-local" id="mf-start" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Ende *</label>
+                  <input type="datetime-local" id="mf-end" class="form-control form-control-sm">
+                </div>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-warning" onclick="saveMaintWindow()"><i class="bi bi-floppy me-1"></i>Speichern</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="hideMaintForm()">Abbrechen</button>
+                <span id="maint-form-msg" class="small align-self-center ms-2"></span>
+              </div>
+            </div>
+
+            <!-- Table -->
+            <div id="maint-list">
+              <div class="text-center text-muted small py-3"><span class="spinner-border spinner-border-sm"></span></div>
+            </div>
+          </div>
+
+        </div><!-- /tab-content -->
+      </div><!-- /modal-body -->
+    </div>
+  </div>
+</div>
+
+<!-- ── Aktive Meldungen Modal ───────────────────────────────── -->
+<div class="modal fade" id="alertsModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="alerts-modal-title">
+          <i class="bi bi-bell-fill text-danger me-2"></i>Aktive Meldungen
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <!-- Filter tabs -->
+        <div class="d-flex gap-2 px-3 pt-3 pb-2 border-bottom border-secondary">
+          <button class="btn btn-sm btn-outline-secondary active" id="af-btn-all"
+                  onclick="filterAlerts('all')">Alle</button>
+          <button class="btn btn-sm btn-outline-secondary" id="af-btn-open"
+                  onclick="filterAlerts('open')">Offen</button>
+          <button class="btn btn-sm btn-outline-secondary" id="af-btn-acked"
+                  onclick="filterAlerts('acked')">Quittiert</button>
+          <div class="ms-auto align-self-center">
+            <span id="alerts-filter-label" class="small text-muted"></span>
+          </div>
+        </div>
+        <div id="alerts-table-body" class="p-3">
+          <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Info Modal ───────────────────────────────────────────── -->
+<div class="modal fade" id="infoModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-info-circle text-warning"></i> Info</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center py-4">
+        <img src="/static/icons/logo.png" height="60" alt="Logo" class="mb-3" onerror="this.style.display='none'">
+        <h5 class="text-warning mb-0">FoxEx Network Monitor</h5>
+        <p class="text-muted small mb-3">Network Monitoring Tool</p>
+        <div class="d-inline-flex align-items-center gap-2 mb-3">
+          <span class="badge bg-secondary fs-6" id="info-version">v–</span>
+          <span id="info-update-badge"></span>
+        </div>
+        <div id="info-update-msg" class="small text-muted mb-3"></div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="checkUpdates()">
+          <i class="bi bi-arrow-clockwise"></i> Auf Updates prüfen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<main class="{% block main_class %}container-fluid py-3{% endblock %}">
+  {% block content %}{% endblock %}
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+// ── Profile ──────────────────────────────────────────────────
+function openProfileModal() {
+  new bootstrap.Modal(document.getElementById('profileModal')).show();
+}
+async function saveProfile() {
+  const msg = document.getElementById('prof-msg');
+  msg.textContent = '';
+  const body = {
+    full_name:        document.getElementById('prof-fullname').value.trim(),
+    current_password: document.getElementById('prof-cur-pw').value,
+    new_password:     document.getElementById('prof-new-pw').value,
+  };
+  const r = await fetch('/api/profile', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (r.ok) {
+    msg.innerHTML = '<span class="text-success"><i class="bi bi-check-lg"></i> Gespeichert.</span>';
+    document.getElementById('prof-cur-pw').value = '';
+    document.getElementById('prof-new-pw').value = '';
+    setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('profileModal')).hide(), 1200);
+  } else {
+    const err = await r.json().catch(() => ({detail:'Fehler'}));
+    msg.innerHTML = `<span class="text-danger"><i class="bi bi-x-lg"></i> ${err.detail || 'Fehler'}</span>`;
+  }
+}
+
+// ── User Management ──────────────────────────────────────────
+const _ROLE_LABEL = {admin:'Admin', operator:'Operator', user:'Benutzer'};
+const _ROLE_BADGE = {admin:'warning text-dark', operator:'info text-dark', user:'secondary'};
+
+async function openUserMgmt() {
+  new bootstrap.Modal(document.getElementById('userMgmtModal')).show();
+  await loadUsers();
+}
+async function loadUsers() {
+  const r = await fetch('/api/admin/users');
+  if (!r.ok) return;
+  const users = await r.json();
+  const tbody = document.getElementById('user-tbody');
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td>
+        <code>${escB(u.username)}</code>
+        ${u.force_pw_change ? '<span class="badge bg-warning text-dark ms-1" style="font-size:.6rem" title="Muss Passwort ändern"><i class="bi bi-shield-exclamation"></i></span>' : ''}
+      </td>
+      <td class="text-muted">${escB(u.full_name || '–')}</td>
+      <td>
+        <select class="form-select form-select-sm bg-dark text-light border-secondary" style="width:auto"
+          onchange="setUserRole(${u.id}, this.value)">
+          <option value="user"     ${u.role==='user'    ?'selected':''}>Benutzer</option>
+          <option value="operator" ${u.role==='operator'?'selected':''}>Operator</option>
+          <option value="admin"    ${u.role==='admin'   ?'selected':''}>Admin</option>
+        </select>
+      </td>
+      <td class="text-muted small">${new Date(u.created_at).toLocaleDateString('de-DE')}</td>
+      <td class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="openResetPwForm(${u.id},'${escB(u.username)}')" title="Passwort zurücksetzen">
+          <i class="bi bi-key"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteUser(${u.id},'${escB(u.username)}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+async function setUserRole(id, role) {
+  await fetch(`/api/admin/users/${id}/role`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({role}),
+  });
+}
+async function createUser() {
+  const msg = document.getElementById('usermgmt-msg');
+  msg.textContent = '';
+  const body = {
+    username:        document.getElementById('nu-username').value.trim(),
+    password:        document.getElementById('nu-password').value,
+    full_name:       document.getElementById('nu-fullname').value.trim(),
+    role:            document.getElementById('nu-role').value,
+    force_pw_change: document.getElementById('nu-force-pw').checked,
+  };
+  const r = await fetch('/api/admin/users', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (r.ok) {
+    msg.innerHTML = '<span class="text-success"><i class="bi bi-check-lg"></i> Benutzer erstellt.</span>';
+    document.getElementById('nu-username').value = '';
+    document.getElementById('nu-password').value = '';
+    document.getElementById('nu-fullname').value = '';
+    document.getElementById('nu-force-pw').checked = false;
+    await loadUsers();
+  } else {
+    const err = await r.json().catch(() => ({detail:'Fehler'}));
+    msg.innerHTML = `<span class="text-danger">${err.detail || 'Fehler'}</span>`;
+  }
+}
+
+let _resetPwUserId = null;
+function openResetPwForm(id, username) {
+  _resetPwUserId = id;
+  const html = `
+    <div class="mt-3 p-3 border border-secondary rounded" id="reset-pw-box">
+      <h6 class="text-warning mb-2"><i class="bi bi-key me-1"></i>Passwort zurücksetzen: <code>${escB(username)}</code></h6>
+      <div class="row g-2">
+        <div class="col-md-5">
+          <input type="password" id="rpw-new" class="form-control form-control-sm" placeholder="Neues Passwort *">
+        </div>
+        <div class="col-md-5">
+          <input type="password" id="rpw-confirm" class="form-control form-control-sm" placeholder="Bestätigen *">
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-warning btn-sm w-100" onclick="submitResetPw()"><i class="bi bi-check-lg"></i></button>
+        </div>
+        <div class="col-12">
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="rpw-force">
+            <label class="form-check-label small text-muted" for="rpw-force">Kennwortänderung bei nächster Anmeldung erzwingen</label>
+          </div>
+        </div>
+      </div>
+      <div id="rpw-msg" class="small mt-1"></div>
+    </div>`;
+  const msg = document.getElementById('usermgmt-msg');
+  msg.innerHTML = html;
+  document.getElementById('rpw-new').focus();
+}
+async function submitResetPw() {
+  const pw      = document.getElementById('rpw-new').value;
+  const confirm = document.getElementById('rpw-confirm').value;
+  const forceIt = document.getElementById('rpw-force').checked;
+  const msg     = document.getElementById('rpw-msg');
+  if (pw !== confirm) { msg.innerHTML = '<span class="text-danger">Passwörter stimmen nicht überein.</span>'; return; }
+  if (pw.length < 6)  { msg.innerHTML = '<span class="text-danger">Min. 6 Zeichen.</span>'; return; }
+  const r = await fetch(`/api/admin/users/${_resetPwUserId}/password`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({password: pw, force_pw_change: forceIt}),
+  });
+  if (r.ok) {
+    document.getElementById('usermgmt-msg').innerHTML = '<span class="text-success"><i class="bi bi-check-lg"></i> Passwort gesetzt.</span>';
+    await loadUsers();
+  } else {
+    const err = await r.json().catch(() => ({detail:'Fehler'}));
+    msg.innerHTML = `<span class="text-danger">${err.detail || 'Fehler'}</span>`;
+  }
+}
+
+async function deleteUser(id, name) {
+  if (!confirm(`Benutzer "${name}" wirklich löschen?`)) return;
+  const r = await fetch(`/api/admin/users/${id}`, {method:'DELETE'});
+  if (r.ok) await loadUsers();
+  else {
+    const err = await r.json().catch(() => ({detail:'Fehler'}));
+    alert(err.detail || 'Fehler beim Löschen');
+  }
+}
+
+// ── Force Password Change ─────────────────────────────────────
+async function submitForcePwChange() {
+  const cur  = document.getElementById('fpc-current').value;
+  const nw   = document.getElementById('fpc-new').value;
+  const conf = document.getElementById('fpc-confirm').value;
+  const msg  = document.getElementById('fpc-msg');
+  if (nw !== conf) { msg.innerHTML = '<span class="text-danger">Passwörter stimmen nicht überein.</span>'; return; }
+  if (nw.length < 6) { msg.innerHTML = '<span class="text-danger">Min. 6 Zeichen.</span>'; return; }
+  const r = await fetch('/api/auth/change-password', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({current_password: cur, new_password: nw}),
+  });
+  if (r.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('forcePwModal'))?.hide();
+  } else {
+    const err = await r.json().catch(() => ({detail:'Fehler'}));
+    msg.innerHTML = `<span class="text-danger">${err.detail || 'Fehler'}</span>`;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if ({{ 'true' if request.session.get('force_pw_change') else 'false' }}) {
+    new bootstrap.Modal(document.getElementById('forcePwModal'), {backdrop:'static'}).show();
+  }
+});
+
+// ── Info ─────────────────────────────────────────────────────
+async function openInfoModal() {
+  new bootstrap.Modal(document.getElementById('infoModal')).show();
+  await checkUpdates();
+}
+async function checkUpdates() {
+  const r = await fetch('/api/info');
+  if (!r.ok) return;
+  const info = await r.json();
+  document.getElementById('info-version').textContent = 'v' + info.version;
+  const badge = document.getElementById('info-update-badge');
+  const msgEl = document.getElementById('info-update-msg');
+  if (info.latest === null) {
+    badge.innerHTML = '';
+    msgEl.textContent = 'Update-Prüfung nicht verfügbar (kein Internetzugang)';
+  } else if (info.update_available) {
+    badge.innerHTML = `<span class="badge bg-success">v${info.latest} verfügbar</span>`;
+    msgEl.textContent = `Neue Version ${info.latest} ist verfügbar!`;
+  } else {
+    badge.innerHTML = '<span class="badge bg-secondary">Aktuell</span>';
+    msgEl.textContent = 'Du verwendest die neueste Version.';
+  }
+}
+
+function escB(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Settings Modal ───────────────────────────────────────────
+let _settingsLoaded = false;
+
+async function openSettingsModal() {
+  new bootstrap.Modal(document.getElementById('settingsModal')).show();
+  if (!_settingsLoaded) { await loadSystemInfo(); _settingsLoaded = true; }
+}
+
+async function loadSystemInfo() {
+  document.getElementById('sys-info-spinner').style.display = '';
+  document.getElementById('sys-info-body').style.display = 'none';
+  const r = await fetch('/api/settings/system');
+  if (!r.ok) return;
+  const d = await r.json();
+  document.getElementById('s-hostname').value = d.hostname || '';
+  document.getElementById('s-ip').value       = d.netmask || d.ip_address || '';
+  document.getElementById('s-gateway').value  = d.gateway || '';
+  document.getElementById('s-time').value     = d.system_time || '';
+  document.getElementById('s-ntp').value      = d.ntp_server || '';
+  document.getElementById('s-dns').value      = d.dns_servers || '';
+  document.getElementById('s-port').value     = d.app_port || '8000';
+  document.getElementById('sys-info-spinner').style.display = 'none';
+  document.getElementById('sys-info-body').style.display = '';
+}
+
+async function _sysPost(url, body, msgId) {
+  const el = document.getElementById(msgId);
+  el.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  el.innerHTML = d.ok
+    ? `<span class="text-success"><i class="bi bi-check-lg"></i> ${escB(d.message||'OK')}</span>`
+    : `<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> ${escB(d.message||d.detail||'Fehler')}</span>`;
+}
+
+function saveSysHostname() { _sysPost('/api/settings/system/hostname', {hostname: document.getElementById('s-hostname').value.trim()}, 'sys-msg'); }
+function saveSysNtp()      { _sysPost('/api/settings/system/ntp',      {ntp_server: document.getElementById('s-ntp').value.trim()},   'sys-msg'); }
+function saveSysDns()      { _sysPost('/api/settings/system/dns',      {dns_servers: document.getElementById('s-dns').value.trim()},  'sys-msg'); }
+function saveSysPort()     { _sysPost('/api/settings/system/port',     {port: parseInt(document.getElementById('s-port').value)},     'sys-msg'); }
+
+let _authLoaded = false;
+async function loadSettingsAuth() {
+  if (_authLoaded) return; _authLoaded = true;
+  const d = await fetch('/api/settings').then(r=>r.json()).catch(()=>({}));
+  document.getElementById('s-radius-on').checked       = d['radius.enabled'] === '1';
+  document.getElementById('s-radius-srv').value         = d['radius.server'] || '';
+  document.getElementById('s-radius-port').value        = d['radius.port'] || '1812';
+  document.getElementById('s-radius-secret').value      = d['radius.secret'] || '';
+  document.getElementById('s-radius-timeout').value     = d['radius.timeout'] || '5';
+}
+
+async function saveAuthSettings() {
+  const msg = document.getElementById('auth-msg');
+  const body = {
+    'radius.enabled': document.getElementById('s-radius-on').checked ? '1' : '0',
+    'radius.server':  document.getElementById('s-radius-srv').value.trim(),
+    'radius.port':    document.getElementById('s-radius-port').value,
+    'radius.secret':  document.getElementById('s-radius-secret').value,
+    'radius.timeout': document.getElementById('s-radius-timeout').value,
+  };
+  const r = await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  msg.innerHTML = r.ok ? '<span class="text-success"><i class="bi bi-check-lg"></i> Gespeichert</span>' : '<span class="text-danger">Fehler</span>';
+}
+
+let _protoLoaded = false;
+async function loadSettingsProto() {
+  if (_protoLoaded) return; _protoLoaded = true;
+  const d = await fetch('/api/settings').then(r=>r.json()).catch(()=>({}));
+  document.getElementById('s-icmp-size').value    = d['icmp.packet_size'] || '56';
+  document.getElementById('s-icmp-count').value   = d['icmp.count']       || '4';
+  document.getElementById('s-icmp-timeout').value = d['icmp.timeout']     || '5';
+  _loadSyslogRetention(d);
+  await loadTemplates();
+}
+
+// ── Syslog Retention ──────────────────────────────────────────
+const _SYSLOG_RET_DEFAULTS = {
+  emerg:0, alert:0, crit:0, err:0, warning:0, notice:1440, info:1440, debug:1440
+};
+
+function _minsToDisplay(m) {
+  const n = parseInt(m) || 0;
+  if (n <= 0) return {value:'', unit:'nie'};
+  if (n % 1440 === 0) return {value: n/1440, unit:'d'};
+  if (n % 60   === 0) return {value: n/60,   unit:'h'};
+  return {value: n, unit:'min'};
+}
+
+function _displayToMins(value, unit) {
+  if (unit === 'nie' || !value) return 0;
+  const n = parseInt(value) || 0;
+  if (unit === 'd')   return n * 1440;
+  if (unit === 'h')   return n * 60;
+  return n;
+}
+
+function onRetUnitChange(sel) {
+  const row   = sel.closest('tr');
+  const valEl = row.querySelector('.syslog-ret-val');
+  valEl.disabled = sel.value === 'nie';
+  if (sel.value === 'nie') valEl.value = '';
+}
+
+function _loadSyslogRetention(d) {
+  document.querySelectorAll('#syslog-ret-tbody tr[data-sev]').forEach(row => {
+    const sev  = row.dataset.sev;
+    const mins = parseInt(d[`syslog.retention.${sev}`] ?? _SYSLOG_RET_DEFAULTS[sev] ?? 0);
+    const {value, unit} = _minsToDisplay(mins);
+    const valEl  = row.querySelector('.syslog-ret-val');
+    const unitEl = row.querySelector('.syslog-ret-unit');
+    unitEl.value    = unit;
+    valEl.value     = value;
+    valEl.disabled  = unit === 'nie';
+  });
+}
+
+async function saveSyslogRetention() {
+  const body = {};
+  document.querySelectorAll('#syslog-ret-tbody tr[data-sev]').forEach(row => {
+    const sev  = row.dataset.sev;
+    const val  = row.querySelector('.syslog-ret-val').value;
+    const unit = row.querySelector('.syslog-ret-unit').value;
+    body[`syslog.retention.${sev}`] = String(_displayToMins(val, unit));
+  });
+  const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const msg = document.getElementById('syslog-ret-msg');
+  msg.innerHTML = r.ok
+    ? '<span class="text-success"><i class="bi bi-check-lg"></i> Gespeichert</span>'
+    : '<span class="text-danger">Fehler beim Speichern</span>';
+}
+
+async function saveProtoSettings() {
+  const msg = document.getElementById('proto-msg');
+  const body = {
+    'icmp.packet_size': document.getElementById('s-icmp-size').value,
+    'icmp.count':       document.getElementById('s-icmp-count').value,
+    'icmp.timeout':     document.getElementById('s-icmp-timeout').value,
+  };
+  const r = await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  msg.innerHTML = r.ok ? '<span class="text-success"><i class="bi bi-check-lg"></i> Gespeichert</span>' : '<span class="text-danger">Fehler</span>';
+}
+
+// ── Email Notifications ────────────────────────────────────────
+function togglePw(id, btn) {
+  const el = document.getElementById(id);
+  const show = el.type === 'password';
+  el.type = show ? 'text' : 'password';
+  btn.innerHTML = show ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
+}
+
+async function loadSettingsEmail() {
+  const d = await (await fetch('/api/settings')).json();
+  document.getElementById('s-mail-enabled').checked = d['mail.notify.enabled'] === '1';
+  document.getElementById('s-mail-host').value  = d['mail.notify.smtp_host'] || '';
+  document.getElementById('s-mail-port').value  = d['mail.notify.smtp_port'] || '587';
+  document.getElementById('s-mail-enc').value   = d['mail.notify.encryption'] || 'starttls';
+  document.getElementById('s-mail-user').value  = d['mail.notify.username'] || '';
+  document.getElementById('s-mail-pass').value  = d['mail.notify.password'] || '';
+  document.getElementById('s-mail-from').value  = d['mail.notify.from'] || '';
+  document.getElementById('s-mail-to').value    = d['mail.notify.to'] || '';
+}
+
+async function saveEmailSettings() {
+  const msg = document.getElementById('mail-msg');
+  const body = {
+    'mail.notify.enabled':    document.getElementById('s-mail-enabled').checked    ? '1' : '0',
+    'mail.notify.smtp_host':  document.getElementById('s-mail-host').value.trim(),
+    'mail.notify.smtp_port':  document.getElementById('s-mail-port').value,
+    'mail.notify.encryption': document.getElementById('s-mail-enc').value,
+    'mail.notify.username':   document.getElementById('s-mail-user').value.trim(),
+    'mail.notify.password':   document.getElementById('s-mail-pass').value,
+    'mail.notify.from':       document.getElementById('s-mail-from').value.trim(),
+    'mail.notify.to':         document.getElementById('s-mail-to').value.trim(),
+  };
+  const r = await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  msg.innerHTML = r.ok
+    ? '<span class="text-success"><i class="bi bi-check-lg"></i> Gespeichert</span>'
+    : '<span class="text-danger">Fehler beim Speichern</span>';
+}
+
+async function testEmail() {
+  const msg = document.getElementById('mail-msg');
+  msg.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> Sende…</span>';
+  try {
+    const r    = await fetch('/api/settings/email/test', { method: 'POST' });
+    const data = await r.json();
+    msg.innerHTML = r.ok
+      ? `<span class="text-success"><i class="bi bi-check-lg"></i> ${data.message}</span>`
+      : `<span class="text-danger"><i class="bi bi-x-lg"></i> ${data.detail || 'Fehler'}</span>`;
+  } catch {
+    msg.innerHTML = '<span class="text-danger">Netzwerkfehler</span>';
+  }
+}
+
+// ── OID Templates ─────────────────────────────────────────────
+let _templates = [];
+
+function toggleCreateTpl() {
+  const f = document.getElementById('create-tpl-form');
+  f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+
+async function loadTemplates() {
+  const r = await fetch('/api/snmp/templates');
+  _templates = await r.json();
+  renderTemplates();
+}
+
+function renderTemplates() {
+  const el = document.getElementById('tpl-list');
+  if (!_templates.length) {
+    el.innerHTML = '<p class="text-muted small">Keine Templates vorhanden. Erstelle dein erstes Template.</p>';
+    return;
+  }
+  el.innerHTML = _templates.map(t => `
+    <div class="border border-secondary rounded mb-2">
+      <div class="d-flex align-items-center justify-content-between p-2">
+        <div>
+          <button class="btn btn-sm btn-link text-light p-0 me-1" onclick="toggleTpl(${t.id})">
+            <i class="bi bi-chevron-right" id="tpl-chev-${t.id}"></i>
+          </button>
+          <strong>${escB(t.name)}</strong>
+          ${t.is_default ? '<span class="badge bg-warning text-dark ms-1" style="font-size:.62rem"><i class="bi bi-lock-fill me-1"></i>Standard</span>' : ''}
+          ${t.description ? `<small class="text-muted ms-2">${escB(t.description)}</small>` : ''}
+          <span class="badge bg-secondary ms-1" style="font-size:.65rem">${(t.entries||[]).length} OIDs</span>
+        </div>
+        ${t.is_default ? '<span class="text-muted small"><i class="bi bi-lock" title="Standard-Template kann nicht gelöscht werden"></i></span>' : `<button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteTpl(${t.id},'${escB(t.name)}')"><i class="bi bi-trash"></i></button>`}
+      </div>
+      <div id="tpl-body-${t.id}" style="display:none">
+        <table class="table table-dark table-sm mb-0 border-top border-secondary">
+          <thead><tr><th class="ps-3" style="width:28px"></th><th style="width:35%">OID</th><th style="width:32%">Bezeichnung</th><th style="width:14%">Einheit</th><th></th></tr></thead>
+          <tbody id="tpl-entries-${t.id}">${renderEntries(t.entries||[], t.id)}</tbody>
+        </table>
+        <div class="p-2 border-top border-secondary">
+          <div class="row g-1 align-items-end">
+            <div class="col-md-4"><input type="text" id="new-oid-${t.id}" class="form-control form-control-sm font-monospace" placeholder="1.3.6.1.2.1.1.3.0"></div>
+            <div class="col-md-4"><input type="text" id="new-lbl-${t.id}" class="form-control form-control-sm" placeholder="Bezeichnung *"></div>
+            <div class="col-md-2"><input type="text" id="new-unit-${t.id}" class="form-control form-control-sm" placeholder="Einheit"></div>
+            <div class="col-md-2"><button class="btn btn-sm btn-outline-success w-100" onclick="addEntry(${t.id})"><i class="bi bi-plus-lg"></i> OID</button></div>
+          </div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function renderEntries(entries, tid) {
+  if (!entries.length) return '<tr><td colspan="5" class="text-muted text-center ps-3 py-2 small">Keine OIDs eingetragen</td></tr>';
+  return entries.map(e => `
+    <tr data-entry-id="${e.id}" style="cursor:grab">
+      <td class="ps-2 text-muted" style="width:28px;cursor:grab" title="Ziehen zum Sortieren">
+        <i class="bi bi-grip-vertical oid-drag-handle"></i>
+      </td>
+      <td class="font-monospace small text-muted">${escB(e.oid)}</td>
+      <td class="small">${escB(e.label)}</td>
+      <td class="small text-muted">${escB(e.unit||'')}</td>
+      <td class="pe-2 text-end">
+        <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteEntry(${tid},${e.id})"><i class="bi bi-x-lg"></i></button>
+      </td>
+    </tr>`).join('');
+}
+
+const _oidSortables = {};
+
+function initOidSortable(tid) {
+  const tbody = document.getElementById(`tpl-entries-${tid}`);
+  if (!tbody || _oidSortables[tid]) return;
+  if (typeof Sortable === 'undefined') return;
+  _oidSortables[tid] = Sortable.create(tbody, {
+    handle: '.oid-drag-handle',
+    animation: 120,
+    ghostClass: 'sortable-ghost',
+    onEnd: async () => {
+      const order = [...tbody.querySelectorAll('tr[data-entry-id]')]
+        .map(tr => parseInt(tr.dataset.entryId));
+      await fetch(`/api/snmp/templates/${tid}/entries/sort-order`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ order }),
+      });
+    },
+  });
+}
+
+function toggleTpl(tid) {
+  const body = document.getElementById(`tpl-body-${tid}`);
+  const chev = document.getElementById(`tpl-chev-${tid}`);
+  const open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  chev.className = open ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+  if (open) initOidSortable(tid);
+}
+
+async function createTemplate() {
+  const name = document.getElementById('new-tpl-name').value.trim();
+  if (!name) return;
+  const desc = document.getElementById('new-tpl-desc').value.trim();
+  const r = await fetch('/api/snmp/templates', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, description:desc}) });
+  if (r.ok) {
+    document.getElementById('new-tpl-name').value = '';
+    document.getElementById('new-tpl-desc').value = '';
+    document.getElementById('create-tpl-form').style.display = 'none';
+    await loadTemplates();
+  }
+}
+
+async function deleteTpl(tid, name) {
+  if (!confirm(`Template "${name}" wirklich löschen? Alle OID-Einträge werden entfernt.`)) return;
+  await fetch(`/api/snmp/templates/${tid}`, { method:'DELETE' });
+  await loadTemplates();
+}
+
+async function addEntry(tid) {
+  const oid   = document.getElementById(`new-oid-${tid}`).value.trim();
+  const label = document.getElementById(`new-lbl-${tid}`).value.trim();
+  const unit  = document.getElementById(`new-unit-${tid}`).value.trim();
+  if (!oid || !label) return;
+  const r = await fetch(`/api/snmp/templates/${tid}/entries`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({oid, label, unit}),
+  });
+  if (r.ok) {
+    document.getElementById(`new-oid-${tid}`).value = '';
+    document.getElementById(`new-lbl-${tid}`).value = '';
+    document.getElementById(`new-unit-${tid}`).value = '';
+    await loadTemplates();
+    // Re-open the expanded template
+    const body = document.getElementById(`tpl-body-${tid}`);
+    if (body) { body.style.display = ''; document.getElementById(`tpl-chev-${tid}`).className = 'bi bi-chevron-down'; }
+  }
+}
+
+async function deleteEntry(tid, eid) {
+  await fetch(`/api/snmp/templates/${tid}/entries/${eid}`, { method:'DELETE' });
+  await loadTemplates();
+  const body = document.getElementById(`tpl-body-${tid}`);
+  if (body) { body.style.display = ''; document.getElementById(`tpl-chev-${tid}`).className = 'bi bi-chevron-down'; }
+}
+
+// ── Trigger all checks ───────────────────────────────────────
+async function triggerAllChecks() {
+  const btn = document.getElementById('global-check-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Prüfe...';
+  try {
+    const r = await fetch('/api/check/all', { method: 'POST' });
+    const data = await r.json();
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> ' + data.message;
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Alle prüfen'; }, 3000);
+  } catch {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Alle prüfen';
+  }
+}
+
+// ── Alert badge: refresh navbar count on every page ───────────
+async function _refreshNavAlertBadge() {
+  try {
+    const r = await fetch('/api/alerts/unacked-counts');
+    if (!r.ok) return;
+    const counts = await r.json();
+    const total = Object.values(counts).reduce((s, n) => s + n, 0);
+    const btn   = document.getElementById('nav-alert-btn');
+    const cnt   = document.getElementById('nav-alert-count');
+    if (btn && cnt) { btn.style.display = total > 0 ? '' : 'none'; cnt.textContent = total; }
+  } catch (_) {}
+}
+
+// openAlertsOverview is defined in dashboard.js; on other pages use a redirect
+function openAlertsOverview(wt) {
+  if (typeof openAlertsOverviewModal === 'function') { openAlertsOverviewModal(wt); return; }
+  window.location.href = '/dashboard';
+}
+
+_refreshNavAlertBadge();
+setInterval(_refreshNavAlertBadge, 30000);
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,372 @@
+/* ── FoxEx Network Monitor – Global Styles ── */
+
+:root {
+  --fox-orange:  #e06820;   /* primary brand color from logo */
+  --fox-orange2: #f07c30;   /* lighter orange for hover */
+  --fox-yellow:  #e06820;   /* alias – kept for compatibility */
+  --fox-bg:      #080a0e;   /* near-black background like logo */
+  --fox-surface: #111318;
+  --fox-card:    #161a22;
+  --fox-border:  #252836;
+  --fox-text:    #d0d4df;
+  --fox-muted:   #6c7293;
+}
+
+body {
+  background-color: var(--fox-bg);
+  color: var(--fox-text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ── Cards ── */
+.bg-card {
+  background-color: var(--fox-card) !important;
+}
+.card {
+  border-color: var(--fox-border) !important;
+}
+.card-header {
+  border-color: var(--fox-border) !important;
+}
+
+/* ── Navbar ── */
+.navbar {
+  background: #000 !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.9);
+  border-bottom: 1px solid #1c1c1c !important;
+}
+.navbar-brand img { transition: opacity .2s; }
+.navbar-brand:hover img { opacity: 0.85; }
+
+/* ── Override Bootstrap warning/yellow to fox-orange ── */
+.text-warning   { color: var(--fox-orange) !important; }
+.btn-warning    { background-color: var(--fox-orange) !important; border-color: var(--fox-orange) !important; color: #fff !important; }
+.btn-warning:hover { background-color: var(--fox-orange2) !important; border-color: var(--fox-orange2) !important; }
+.btn-outline-warning { color: var(--fox-orange) !important; border-color: var(--fox-orange) !important; }
+.btn-outline-warning:hover { background-color: var(--fox-orange) !important; color: #fff !important; }
+.badge.bg-warning { background-color: var(--fox-orange) !important; }
+
+/* ── Tables ── */
+.table-dark {
+  --bs-table-bg: transparent;
+  --bs-table-hover-bg: rgba(255,255,255,0.04);
+}
+.table th { color: var(--fox-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: .05em; border-color: var(--fox-border) !important; }
+.table td { border-color: var(--fox-border) !important; vertical-align: middle; }
+
+/* ── Badges ── */
+.badge { font-weight: 500; }
+
+/* ── Compact selects without dropdown arrow (widget headers) ── */
+.trend-select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 6px !important;
+  cursor: pointer;
+}
+
+/* ── Login Page ── */
+.bg-login {
+  background: #000;
+}
+.login-logo-wrap {
+  position: relative;
+  margin-bottom: 2rem;
+  /* orange radial halo centered on logo */
+  filter: drop-shadow(0 0 28px rgba(224,104,32,0.55))
+          drop-shadow(0 0 8px  rgba(224,104,32,0.35));
+}
+.login-logo {
+  display: block;
+  max-width: 240px;
+  max-height: 96px;
+  object-fit: contain;
+}
+.login-card {
+  background: var(--fox-card);
+  border: 1px solid rgba(224,104,32,0.3);
+  border-radius: 14px;
+  box-shadow: 0 0 40px rgba(224,104,32,0.1);
+}
+
+/* ── Device Icons ── */
+.device-icon { object-fit: contain; }
+
+/* ── Status Dots ── */
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+.status-online  { background: #28a745; box-shadow: 0 0 4px #28a745; }
+.status-offline { background: #dc3545; box-shadow: 0 0 4px #dc3545; }
+.status-unknown { background: #6c757d; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--fox-surface); }
+::-webkit-scrollbar-thumb { background: var(--fox-border); border-radius: 3px; }
+
+/* ═══════════════════════════════════════════
+   DASHBOARD – GRID LAYOUT + DRAG & DROP
+═══════════════════════════════════════════ */
+
+#widget-container {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.dash-widget {
+  margin-bottom: 0 !important;
+  transition: opacity .2s;
+  position: relative;
+}
+
+/* Full-width widgets span all 4 grid columns */
+.dash-widget.widget-full { grid-column: 1 / -1; }
+/* Half-width widgets span 2 columns */
+.dash-widget.widget-2col { grid-column: span 2; }
+
+/* Compact stat card numbers */
+.stat-number {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/* Chart card-bodies — fixed initial height, no CSS resize */
+.resizable-body {
+  height: 120px;
+  min-height: 60px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Custom drag-resize handle */
+.widget-resize-handle {
+  height: 6px;
+  cursor: row-resize;
+  border-radius: 0 0 6px 6px;
+  background: linear-gradient(transparent, rgba(255,255,255,0.04));
+  transition: background .15s;
+  user-select: none;
+}
+.widget-resize-handle:hover,
+.widget-resize-handle.dragging {
+  background: rgba(224,104,32,0.35) !important;
+}
+
+/* Width toggle button in edit mode */
+.widget-width-btn {
+  position: absolute;
+  top: 4px;
+  right: 30px;
+  z-index: 10;
+  display: none;
+  font-size: .7rem;
+  padding: 1px 5px;
+}
+.edit-mode .widget-width-btn { display: block; }
+
+/* Drag handle shown in edit mode */
+.widget-drag-handle {
+  position: absolute;
+  top: 8px; left: -22px;
+  z-index: 10;
+  cursor: grab;
+  font-size: 1.1rem;
+  padding: 2px 4px;
+}
+.widget-drag-handle:active { cursor: grabbing; }
+
+/* Edit mode outlines */
+.edit-mode .dash-widget {
+  padding-left: 26px;
+}
+.edit-mode .dash-widget::after {
+  content: '';
+  position: absolute; inset: 0;
+  border: 2px dashed var(--fox-yellow);
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: .45;
+}
+.edit-mode .widget-drag-handle { display: block !important; }
+
+/* Sortable ghost (placeholder while dragging) */
+.sortable-ghost {
+  opacity: 0.3;
+  background: rgba(255,193,7,0.08);
+  border: 2px dashed var(--fox-yellow);
+  border-radius: 8px;
+}
+.sortable-drag {
+  opacity: 0.95;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* ═══════════════════════════════════════════
+   TOPOLOGY PAGE
+═══════════════════════════════════════════ */
+
+.topology-layout {
+  display: flex;
+  height: calc(100vh - 56px);  /* minus navbar */
+  overflow: hidden;
+}
+
+/* Sidebars */
+.topo-sidebar {
+  width: 200px;
+  min-width: 200px;
+  background: var(--fox-surface);
+  border-right: 1px solid var(--fox-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.topo-sidebar-right {
+  border-right: none;
+  border-left: 1px solid var(--fox-border);
+  width: 280px;
+  min-width: 280px;
+}
+
+.topo-sidebar-header {
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--fox-muted);
+  border-bottom: 1px solid var(--fox-border);
+  flex-shrink: 0;
+}
+
+/* Palette */
+.topo-palette {
+  overflow-y: auto;
+  padding: 8px;
+  flex: 1;
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: grab;
+  transition: background .15s;
+  position: relative;
+  user-select: none;
+}
+.palette-item:hover { background: rgba(255,255,255,0.06); }
+.palette-item.on-map { opacity: 0.45; }
+.palette-item.on-map::after {
+  content: '✓';
+  position: absolute;
+  right: 6px;
+  font-size: 0.7rem;
+  color: var(--fox-muted);
+}
+.palette-icon { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
+.palette-label { font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.palette-item .status-dot { flex-shrink: 0; }
+
+/* Canvas wrapper */
+.topo-canvas-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--fox-bg);
+  background-image:
+    radial-gradient(circle, var(--fox-border) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+/* Toolbar */
+.topo-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--fox-surface);
+  border-bottom: 1px solid var(--fox-border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.topo-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fox-text);
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all .15s;
+}
+.topo-btn:hover { background: rgba(255,255,255,0.08); border-color: var(--fox-border); }
+.topo-btn[data-active="true"] { background: rgba(255,193,7,0.15); border-color: var(--fox-yellow); color: var(--fox-yellow); }
+.topo-sep { width: 1px; height: 20px; background: var(--fox-border); margin: 0 4px; }
+.topo-save-msg { font-size: 0.75rem; color: #28a745; margin-left: 4px; }
+.topo-multi-bar {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: #1a2030;
+  border: 1px solid var(--fox-yellow);
+  border-radius: 6px;
+  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+}
+
+/* Shape palette items */
+.shape-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  cursor: grab;
+  font-size: 0.78rem;
+  color: var(--fox-text);
+  border: 1px solid transparent;
+  transition: background .15s, border-color .15s;
+  user-select: none;
+}
+.shape-palette-item:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: var(--fox-border);
+}
+.shape-palette-item i { font-size: 1rem; color: var(--fox-orange); flex-shrink: 0; }
+
+/* Canvas container */
+#topology-canvas {
+  flex: 1;
+  overflow: hidden;
+  cursor: default;
+}
+
+/* Detail panel content */
+#detail-content .metric-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--fox-border);
+  font-size: 0.8rem;
+}
+#detail-content .metric-row:last-child { border-bottom: none; }
+#detail-content .metric-label { color: var(--fox-muted); }
+
+/* ── Notification bell buttons in widget headers ── */
+.notif-bell { opacity: .55; transition: opacity .15s, color .15s; }
+.notif-bell:hover { opacity: 1; color: var(--fox-yellow) !important; }
+.notif-bell i { font-size: .8rem; }

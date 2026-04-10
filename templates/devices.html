@@ -1,0 +1,608 @@
+{% extends "base.html" %}
+{% block title %}Geräte – FoxEx Network Monitor{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="mb-0"><i class="bi bi-hdd-network text-warning"></i> Geräte</h2>
+  <button class="btn btn-warning fw-bold" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+    <i class="bi bi-plus-lg"></i> Gerät hinzufügen
+  </button>
+</div>
+
+<div class="card border-0 bg-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-dark table-hover mb-0">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Name</th>
+            <th>IP-Adresse</th>
+            <th>Typ</th>
+            <th>ICMP</th>
+            <th>SNMP</th>
+            <th>Status</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in devices %}
+          <tr>
+            <td>
+              {% if d.icon_name and d.icon_name.startswith('custom_') %}
+                <img src="/uploads/icons/{{ d.icon_name }}" width="28" height="28" class="device-icon">
+              {% else %}
+                <img src="/static/icons/{{ d.icon_name or d.device_type }}.svg" width="28" height="28" class="device-icon" onerror="this.src='/static/icons/generic.svg'">
+              {% endif %}
+            </td>
+            <td><a href="/devices/{{ d.id }}" class="text-decoration-none text-light">{{ d.name }}</a></td>
+            <td><code>{{ d.ip_address }}</code></td>
+            <td>
+              <span class="badge bg-secondary">
+                {% for key, label in device_types %}{% if key == d.device_type %}{{ label }}{% endif %}{% endfor %}
+              </span>
+            </td>
+            <td>
+              {% if d.icmp_enabled %}
+                <span class="badge bg-success">Aktiv</span>
+              {% else %}
+                <span class="badge bg-secondary">Inaktiv</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if d.snmp_enabled %}
+                <span class="badge bg-info text-dark">Aktiv</span>
+              {% else %}
+                <span class="badge bg-secondary">Inaktiv</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if d.status == 'online' %}
+                <span class="badge bg-success"><i class="bi bi-circle-fill"></i> Online</span>
+              {% elif d.status == 'offline' %}
+                <span class="badge bg-danger"><i class="bi bi-circle-fill"></i> Offline</span>
+              {% else %}
+                <span class="badge bg-secondary"><i class="bi bi-circle-fill"></i> Unbekannt</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <a href="/devices/{{ d.id }}" class="btn btn-outline-info" title="Details">
+                  <i class="bi bi-eye"></i>
+                </a>
+                <button class="btn btn-outline-warning" title="Bearbeiten"
+                  onclick="openEditModal({{ d.id }}, '{{ d.name }}', '{{ d.ip_address }}', '{{ d.device_type }}', {{ 'true' if d.snmp_enabled else 'false' }}, '{{ d.snmp_community }}', {{ d.snmp_port }}, {{ 'true' if d.icmp_enabled else 'false' }}, {{ d.icmp_interval }}, {{ d.snmp_interval }}, `{{ d.description | replace('`', '\\`') }}`, {{ 'true' if d.tcp_enabled else 'false' }}, {{ d.tcp_port or 80 }}, {{ d.tcp_interval or 60 }}, {{ 'true' if d.http_enabled else 'false' }}, `{{ d.http_url or '' }}`, {{ d.http_interval or 60 }}, {{ 'true' if d.ssh_enabled else 'false' }}, {{ d.ssh_port or 22 }}, {{ d.ssh_interval or 60 }}, {{ 'true' if d.wmi_enabled else 'false' }}, '{{ d.wmi_username or '' }}', {{ d.wmi_interval or 300 }}, {{ 'true' if d.netflow_enabled else 'false' }}, {{ 'true' if d.sflow_enabled else 'false' }}, {{ 'true' if d.syslog_enabled else 'false' }}, {{ d.syslog_port or 514 }}, '{{ d.syslog_source_ip or '' }}', '{{ d.snmp_template_ids | join(",") }}')">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-outline-danger" title="Löschen" onclick="deleteDevice({{ d.id }}, '{{ d.name }}')">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" class="text-center text-muted py-5">
+              <i class="bi bi-hdd-network display-6 d-block mb-2"></i>
+              Noch keine Geräte. Füge dein erstes Gerät hinzu!
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add Device Modal -->
+<div class="modal fade" id="addDeviceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-plus-circle text-warning"></i> Gerät hinzufügen</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addDeviceForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Name *</label>
+              <input type="text" name="name" class="form-control" required placeholder="z.B. Core-Switch">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">IP-Adresse *</label>
+              <input type="text" name="ip_address" class="form-control" required placeholder="192.168.1.1">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Gerätetyp</label>
+              <select name="device_type" class="form-select">
+                {% for key, label in device_types %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Beschreibung</label>
+              <textarea name="description" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="col-12"><hr class="border-secondary"><h6>ICMP (Ping)</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="icmp_enabled" id="add_icmp" checked>
+                <label class="form-check-label" for="add_icmp">ICMP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="icmp_interval" class="form-control" value="60" min="10">
+            </div>
+            <div class="col-12"><hr class="border-secondary"><h6>SNMP v2c</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="snmp_enabled" id="add_snmp">
+                <label class="form-check-label" for="add_snmp">SNMP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Community</label>
+              <input type="text" name="snmp_community" class="form-control" value="public">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Port</label>
+              <input type="number" name="snmp_port" class="form-control" value="161">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="snmp_interval" class="form-control" value="300" min="30">
+            </div>
+            <div class="col-12" id="add_tpl_section" style="display:none">
+              <label class="form-label">SNMP Templates <span class="text-danger fw-bold">*</span>
+                <small class="text-muted">(mind. 1 wenn SNMP aktiv)</small></label>
+              <div class="border border-secondary rounded p-2" id="add_tpl_checks"
+                   style="max-height:120px;overflow-y:auto;background:#111">
+                <div class="text-muted small ps-1">Lade Templates…</div>
+              </div>
+              <input type="hidden" name="snmp_template_ids" id="add_tpl_ids">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>TCP Port-Check</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="tcp_enabled" id="add_tcp">
+                <label class="form-check-label" for="add_tcp">TCP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="tcp_port" class="form-control" value="80">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="tcp_interval" class="form-control" value="60" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>HTTP / HTTPS Check</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="http_enabled" id="add_http">
+                <label class="form-check-label" for="add_http">HTTP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">URL</label>
+              <input type="text" name="http_url" class="form-control" placeholder="https://192.168.1.1">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="http_interval" class="form-control" value="60" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-terminal"></i> SSH Banner-Check</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="ssh_enabled" id="add_ssh">
+                <label class="form-check-label" for="add_ssh">SSH aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="ssh_port" class="form-control" value="22">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="ssh_interval" class="form-control" value="60" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-windows"></i> WMI (Windows-Geräte)</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="wmi_enabled" id="add_wmi">
+                <label class="form-check-label" for="add_wmi">WMI aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Benutzername</label>
+              <input type="text" name="wmi_username" class="form-control" placeholder="domain\user">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Passwort</label>
+              <input type="password" name="wmi_password" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="wmi_interval" class="form-control" value="300" min="60">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-diagram-2"></i> NetFlow / sFlow (Gerät sendet Daten an uns)</h6></div>
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="netflow_enabled" id="add_netflow">
+                <label class="form-check-label" for="add_netflow">NetFlow v5 empfangen <small class="text-muted">(UDP :2055)</small></label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="sflow_enabled" id="add_sflow">
+                <label class="form-check-label" for="add_sflow">sFlow v5 empfangen <small class="text-muted">(UDP :6343)</small></label>
+              </div>
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-journal-text"></i> Syslog</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="syslog_enabled" id="add_syslog">
+                <label class="form-check-label" for="add_syslog">Syslog empfangen</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="syslog_port" class="form-control" value="514">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Quell-IP <small class="text-muted">(optional)</small></label>
+              <input type="text" name="syslog_source_ip" class="form-control" placeholder="z.B. 192.168.1.100">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-warning fw-bold">Gerät speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Device Modal -->
+<div class="modal fade" id="editDeviceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-pencil text-warning"></i> Gerät bearbeiten</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editDeviceForm">
+        <input type="hidden" id="edit_device_id">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Name *</label>
+              <input type="text" name="name" id="edit_name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">IP-Adresse *</label>
+              <input type="text" name="ip_address" id="edit_ip" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Gerätetyp</label>
+              <select name="device_type" id="edit_type" class="form-select">
+                {% for key, label in device_types %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Beschreibung</label>
+              <textarea name="description" id="edit_desc" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="col-12"><hr class="border-secondary"><h6>ICMP</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="icmp_enabled" id="edit_icmp">
+                <label class="form-check-label" for="edit_icmp">ICMP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="icmp_interval" id="edit_icmp_int" class="form-control" min="10">
+            </div>
+            <div class="col-12"><hr class="border-secondary"><h6>SNMP v2c</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="snmp_enabled" id="edit_snmp">
+                <label class="form-check-label" for="edit_snmp">SNMP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Community</label>
+              <input type="text" name="snmp_community" id="edit_comm" class="form-control">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Port</label>
+              <input type="number" name="snmp_port" id="edit_port" class="form-control">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="snmp_interval" id="edit_snmp_int" class="form-control" min="30">
+            </div>
+            <div class="col-12" id="edit_tpl_section" style="display:none">
+              <label class="form-label">SNMP Templates <span class="text-danger fw-bold">*</span>
+                <small class="text-muted">(mind. 1 wenn SNMP aktiv)</small></label>
+              <div class="border border-secondary rounded p-2" id="edit_tpl_checks"
+                   style="max-height:120px;overflow-y:auto;background:#111">
+                <div class="text-muted small ps-1">Lade Templates…</div>
+              </div>
+              <input type="hidden" name="snmp_template_ids" id="edit_tpl_ids">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>TCP Port-Check</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="tcp_enabled" id="edit_tcp">
+                <label class="form-check-label" for="edit_tcp">TCP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="tcp_port" id="edit_tcp_port" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="tcp_interval" id="edit_tcp_int" class="form-control" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6>HTTP / HTTPS</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="http_enabled" id="edit_http">
+                <label class="form-check-label" for="edit_http">HTTP aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">URL</label>
+              <input type="text" name="http_url" id="edit_http_url" class="form-control">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="http_interval" id="edit_http_int" class="form-control" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-terminal"></i> SSH</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="ssh_enabled" id="edit_ssh">
+                <label class="form-check-label" for="edit_ssh">SSH aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="ssh_port" id="edit_ssh_port" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="ssh_interval" id="edit_ssh_int" class="form-control" min="10">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-windows"></i> WMI</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="wmi_enabled" id="edit_wmi">
+                <label class="form-check-label" for="edit_wmi">WMI aktiviert</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Benutzername</label>
+              <input type="text" name="wmi_username" id="edit_wmi_user" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Passwort</label>
+              <input type="password" name="wmi_password" id="edit_wmi_pass" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Intervall (Sek.)</label>
+              <input type="number" name="wmi_interval" id="edit_wmi_int" class="form-control" min="60">
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-diagram-2"></i> NetFlow / sFlow</h6></div>
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="netflow_enabled" id="edit_netflow">
+                <label class="form-check-label" for="edit_netflow">NetFlow v5 (UDP :2055)</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="sflow_enabled" id="edit_sflow">
+                <label class="form-check-label" for="edit_sflow">sFlow v5 (UDP :6343)</label>
+              </div>
+            </div>
+
+            <div class="col-12"><hr class="border-secondary"><h6><i class="bi bi-journal-text"></i> Syslog</h6></div>
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="syslog_enabled" id="edit_syslog">
+                <label class="form-check-label" for="edit_syslog">Syslog empfangen</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Port</label>
+              <input type="number" name="syslog_port" id="edit_syslog_port" class="form-control" value="514">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Quell-IP <small class="text-muted">(optional)</small></label>
+              <input type="text" name="syslog_source_ip" id="edit_syslog_src" class="form-control" placeholder="z.B. 192.168.1.100">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-warning fw-bold">Änderungen speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Template multi-select helpers ────────────────────────────
+let _allTemplates = [];
+
+async function loadAllTemplates() {
+  try {
+    const r = await fetch('/api/snmp/templates');
+    if (r.ok) _allTemplates = await r.json();
+  } catch {}
+}
+
+function renderTplChecks(containerId, selectedIds) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!_allTemplates.length) {
+    el.innerHTML = '<div class="text-muted small ps-1">Keine Templates – erst unter Einstellungen → Protokolle erstellen.</div>';
+    return;
+  }
+  el.innerHTML = _allTemplates.map(t => `
+    <div class="form-check py-1">
+      <input class="form-check-input" type="checkbox" id="tpl-cb-${containerId}-${t.id}" value="${t.id}"
+             ${selectedIds.includes(t.id) ? 'checked' : ''}>
+      <label class="form-check-label small" for="tpl-cb-${containerId}-${t.id}">
+        ${escHtml(t.name)}
+        ${t.is_default ? '<span class="badge bg-warning text-dark ms-1" style="font-size:.55rem">Standard</span>' : ''}
+      </label>
+    </div>`).join('');
+}
+
+function getCheckedTplIds(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return [];
+  return [...el.querySelectorAll('input[type="checkbox"]:checked')].map(cb => parseInt(cb.value));
+}
+
+function toggleTplSection(modalPrefix, isChecked) {
+  const sec = document.getElementById(`${modalPrefix}_tpl_section`);
+  if (sec) sec.style.display = isChecked ? '' : 'none';
+}
+
+// Wire SNMP toggle → show/hide template section
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAllTemplates();
+
+  document.getElementById('add_snmp').addEventListener('change', function() {
+    toggleTplSection('add', this.checked);
+    if (this.checked) renderTplChecks('add_tpl_checks', []);
+  });
+  document.getElementById('edit_snmp').addEventListener('change', function() {
+    toggleTplSection('edit', this.checked);
+  });
+});
+
+document.getElementById('addDeviceModal').addEventListener('show.bs.modal', () => {
+  const snmpOn = document.getElementById('add_snmp').checked;
+  toggleTplSection('add', snmpOn);
+  renderTplChecks('add_tpl_checks', []);
+});
+
+// Add device
+document.getElementById('addDeviceForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const bools = ['icmp_enabled','snmp_enabled','tcp_enabled','http_enabled',
+                  'ssh_enabled','wmi_enabled','netflow_enabled','sflow_enabled','syslog_enabled'];
+  bools.forEach(name => {
+    const el = e.target.querySelector(`[name="${name}"]`);
+    fd.set(name, el && el.checked ? 'true' : 'false');
+  });
+  const tplIds = getCheckedTplIds('add_tpl_checks');
+  if (fd.get('snmp_enabled') === 'true' && tplIds.length === 0) {
+    alert('Bitte mindestens ein SNMP-Template auswählen.'); return;
+  }
+  fd.set('snmp_template_ids', tplIds.join(','));
+  const r = await fetch('/api/devices', { method: 'POST', body: fd });
+  if (r.ok) location.reload(); else alert('Fehler beim Speichern');
+});
+
+// Edit device
+function openEditModal(id, name, ip, type,
+    snmpEnabled, comm, snmpPort, icmpEnabled, icmpInt, snmpInt, desc,
+    tcpEnabled, tcpPort, tcpInt, httpEnabled, httpUrl, httpInt,
+    sshEnabled, sshPort, sshInt,
+    wmiEnabled, wmiUser, wmiInt, netflowEnabled, sflowEnabled,
+    syslogEnabled, syslogPort, syslogSrcIp, snmpTplIdsCsv) {
+  document.getElementById('edit_device_id').value = id;
+  document.getElementById('edit_name').value = name;
+  document.getElementById('edit_ip').value = ip;
+  document.getElementById('edit_type').value = type;
+  document.getElementById('edit_snmp').checked = snmpEnabled;
+  document.getElementById('edit_comm').value = comm;
+  document.getElementById('edit_port').value = snmpPort;
+  document.getElementById('edit_icmp').checked = icmpEnabled;
+  document.getElementById('edit_icmp_int').value = icmpInt;
+  document.getElementById('edit_snmp_int').value = snmpInt;
+  document.getElementById('edit_desc').value = desc;
+  document.getElementById('edit_tcp').checked = tcpEnabled;
+  document.getElementById('edit_tcp_port').value = tcpPort;
+  document.getElementById('edit_tcp_int').value = tcpInt;
+  document.getElementById('edit_http').checked = httpEnabled;
+  document.getElementById('edit_http_url').value = httpUrl;
+  document.getElementById('edit_http_int').value = httpInt;
+  document.getElementById('edit_ssh').checked = sshEnabled;
+  document.getElementById('edit_ssh_port').value = sshPort;
+  document.getElementById('edit_ssh_int').value = sshInt;
+  document.getElementById('edit_wmi').checked = wmiEnabled;
+  document.getElementById('edit_wmi_user').value = wmiUser;
+  document.getElementById('edit_wmi_int').value = wmiInt;
+  document.getElementById('edit_netflow').checked = netflowEnabled;
+  document.getElementById('edit_sflow').checked = sflowEnabled;
+  document.getElementById('edit_syslog').checked = syslogEnabled;
+  document.getElementById('edit_syslog_port').value = syslogPort || 514;
+  document.getElementById('edit_syslog_src').value = syslogSrcIp || '';
+  const selectedIds = snmpTplIdsCsv ? String(snmpTplIdsCsv).split(',').filter(x=>x).map(Number) : [];
+  toggleTplSection('edit', snmpEnabled);
+  renderTplChecks('edit_tpl_checks', selectedIds);
+  new bootstrap.Modal(document.getElementById('editDeviceModal')).show();
+}
+
+document.getElementById('editDeviceForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('edit_device_id').value;
+  const fd = new FormData(e.target);
+  const bools = ['icmp_enabled','snmp_enabled','tcp_enabled','http_enabled',
+                  'ssh_enabled','wmi_enabled','netflow_enabled','sflow_enabled','syslog_enabled'];
+  bools.forEach(name => {
+    const el = e.target.querySelector(`[name="${name}"]`);
+    fd.set(name, el && el.checked ? 'true' : 'false');
+  });
+  fd.set('is_active', 'true');
+  const tplIds = getCheckedTplIds('edit_tpl_checks');
+  if (fd.get('snmp_enabled') === 'true' && tplIds.length === 0) {
+    alert('Bitte mindestens ein SNMP-Template auswählen.'); return;
+  }
+  fd.set('snmp_template_ids', tplIds.join(','));
+  const r = await fetch(`/api/devices/${id}`, { method: 'PUT', body: fd });
+  if (r.ok) location.reload(); else alert('Fehler beim Speichern');
+});
+
+// Delete device
+async function deleteDevice(id, name) {
+  if (!confirm(`Gerät "${name}" wirklich löschen?`)) return;
+  const r = await fetch(`/api/devices/${id}`, { method: 'DELETE' });
+  if (r.ok) location.reload(); else alert('Fehler beim Löschen');
+}
+</script>
+{% endblock %}
