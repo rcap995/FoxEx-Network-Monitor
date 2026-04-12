@@ -21,6 +21,7 @@ const WIDGETS = [
   { id: 'snmp-alerts',       label: 'SNMP-Meldungen' },
   { id: 'snmp-traps',        label: 'SNMP Traps' },
   { id: 'dns-monitor',       label: 'URL-Monitor' },
+  { id: 'ssh-services',      label: 'Linux-Dienste' },
   { id: 'device-table',      label: 'Geräteliste' },
   { id: 'tcp-check',         label: 'TCP-Port Check',   defaultHidden: true },
   { id: 'http-check',        label: 'HTTP/HTTPS Check', defaultHidden: true },
@@ -124,6 +125,7 @@ async function loadAll() {
   loadLatencyTrend();
   loadPacketLossTrend();
   loadAlertCounts();
+  loadSshServices();
 }
 
 // ── Summary + table + donut + bar ─────────────────────────────
@@ -415,6 +417,7 @@ const _WIDGET_LOADERS = {
   'snmp-alerts':    () => typeof loadSnmpAlertsDash === 'function' && loadSnmpAlertsDash(),
   'snmp-traps':     () => typeof loadTrapSummary    === 'function' && loadTrapSummary(),
   'dns-monitor':    () => typeof loadDnsMonitor     === 'function' && loadDnsMonitor(),
+  'ssh-services':   () => typeof loadSshServices    === 'function' && loadSshServices(),
   'tcp-check':      () => typeof loadTcpCheck       === 'function' && loadTcpCheck(),
   'http-check':     () => typeof loadHttpCheck      === 'function' && loadHttpCheck(),
   'ssh-check':      () => typeof loadSshCheck       === 'function' && loadSshCheck(),
@@ -494,6 +497,7 @@ const DEFAULT_WIDTHS = {
   'device-latency': '2col', 'packet-loss': '2col',
   'syslog-summary': '2col', 'snmp-alerts': '2col',
   'snmp-traps': '2col', 'dns-monitor': '2col',
+  'ssh-services': '2col',
   'tcp-check': '2col', 'http-check': '2col',
   'ssh-check': '2col', 'netflow': '2col',
 };
@@ -726,6 +730,7 @@ const NOTIF_WIDGET_META = {
   syslog:         { label: 'Syslog',                  hasThreshold: false, thresholdUnit: '',    hasSeverity: true,  hasTimer: false, hasMessage: false, excPlaceholder: 'IP-Adresse oder Hostname' },
   snmp:           { label: 'SNMP-Meldungen',          hasThreshold: false, thresholdUnit: '',    hasSeverity: true,  hasTimer: false, hasMessage: false, excPlaceholder: 'IP-Adresse oder Hostname' },
   dns:            { label: 'URL-Monitor (DNS)',        hasThreshold: false, thresholdUnit: '',    hasSeverity: false, hasTimer: true,  hasMessage: false, excPlaceholder: 'URL'                      },
+  ssh_service:    { label: 'Linux-Dienste (SSH)',   hasThreshold: false, thresholdUnit: '',   hasSeverity: false, hasTimer: true,  hasMessage: false, excPlaceholder: 'host:dienst' },
   snmp_trap:      { label: 'SNMP Traps',               hasThreshold: false, thresholdUnit: '',    hasSeverity: false, hasTimer: false, hasMessage: false, excPlaceholder: 'IP-Adresse'               },
   tcp:            { label: 'TCP-Port Check',           hasThreshold: true,  thresholdUnit: 'ms',  hasSeverity: false, hasTimer: true,  hasMessage: false, excPlaceholder: 'IP-Adresse oder Hostname' },
   http_check:     { label: 'HTTP/HTTPS Check',         hasThreshold: true,  thresholdUnit: 'ms',  hasSeverity: false, hasTimer: true,  hasMessage: false, excPlaceholder: 'URL oder IP-Adresse'      },
@@ -904,6 +909,7 @@ async function saveNotifRule() {
 const ALERT_WIDGET_LABELS = {
   status: 'Gerät Status', icmp_avg: 'Ø Latenz', device_latency: 'Latenz/Gerät',
   packet_loss: 'Paketverlust', syslog: 'Syslog', snmp: 'SNMP', dns: 'URL-Monitor',
+  ssh_service: 'Linux-Dienste',
 };
 
 let _alertsAll = [];       // cache of all active alerts
@@ -1192,3 +1198,200 @@ async function deleteMaintWindow(id) {
   await loadMaintenanceWindows();
 }
 
+
+
+// ══════════════════════════════════════════════════════════════
+// ── SSH Service Monitor ───────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+function fmtRelative(iso) {
+  if (!iso) return 'Nie';
+  const diff = Math.floor((Date.now() - new Date(iso + 'Z')) / 1000);
+  if (diff < 5)     return 'gerade eben';
+  if (diff < 60)    return 'vor ' + diff + 's';
+  if (diff < 3600)  return 'vor ' + Math.floor(diff / 60) + 'm';
+  if (diff < 86400) return 'vor ' + Math.floor(diff / 3600) + 'h';
+  return 'vor ' + Math.floor(diff / 86400) + 'd';
+}
+
+const SSH_STATUS_COLOR = {
+  active:       '#28a745',
+  inactive:     '#dc3545',
+  failed:       '#c82333',
+  activating:   '#ffc107',
+  deactivating: '#fd7e14',
+  error:        '#e06820',
+  unknown:      '#6c7293',
+};
+const SSH_STATUS_LABEL = {
+  active:       'aktiv',
+  inactive:     'gestoppt',
+  failed:       'fehlgeschlagen',
+  activating:   'startet...',
+  deactivating: 'stoppt...',
+  error:        'SSH-Fehler',
+  unknown:      'unbekannt',
+};
+
+async function loadSshServices() {
+  const body = document.getElementById('ssh-services-body');
+  if (!body) return;
+  try {
+    const r = await fetch('/api/ssh-services');
+    if (!r.ok) return;
+    const monitors = await r.json();
+    const cnt = document.getElementById('ssh-services-count');
+    if (cnt) {
+      const active = monitors.filter(m => m.last_status === 'active').length;
+      cnt.textContent = monitors.length ? active + '/' + monitors.length + ' aktiv' : '';
+    }
+    if (!monitors.length) {
+      body.innerHTML = '<div class="text-center text-muted small py-4">Noch keine Dienste konfiguriert.<br>'
+        + '<button class="btn btn-sm btn-outline-warning mt-2" onclick="openSshServiceModal()">'
+        + '<i class="bi bi-plus-lg"></i> Dienst hinzufuegen</button></div>';
+      return;
+    }
+    body.innerHTML = monitors.map(function(m) {
+      const color = SSH_STATUS_COLOR[m.last_status] || SSH_STATUS_COLOR.unknown;
+      const label = SSH_STATUS_LABEL[m.last_status] || m.last_status;
+      const fails = m.consecutive_failures > 1
+        ? '<span class="text-danger ms-1" style="font-size:.68rem">' + m.consecutive_failures + 'x Fehler</span>'
+        : '';
+      return '<div class="d-flex align-items-center gap-2 px-2 py-1 border-bottom border-secondary" style="font-size:.8rem">'
+        + '<span style="width:9px;height:9px;border-radius:50%;background:' + color + ';flex-shrink:0;box-shadow:0 0 4px ' + color + '66"></span>'
+        + '<div class="flex-grow-1 overflow-hidden">'
+        + '<span class="fw-semibold text-truncate d-block">' + escHtml(m.name) + '</span>'
+        + '<span class="text-muted" style="font-size:.7rem">' + escHtml(m.service_name) + '@' + escHtml(m.host) + ' \u00b7 ' + fmtRelative(m.last_check) + '</span>'
+        + '</div>'
+        + '<div class="d-flex align-items-center gap-1 flex-shrink-0">'
+        + '<span class="badge" style="background:' + color + '22;color:' + color + ';font-size:.68rem;border:1px solid ' + color + '44">' + label + '</span>'
+        + fails
+        + '<button class="btn btn-link p-0 text-muted" style="font-size:.75rem" onclick="showSshHistory(' + m.id + ',\'' + escHtml(m.name) + '\')" title="Verlauf"><i class="bi bi-clock-history"></i></button>'
+        + '<button class="btn btn-link p-0 text-muted" style="font-size:.75rem" onclick="openSshServiceModal(' + m.id + ')" title="Bearbeiten"><i class="bi bi-pencil"></i></button>'
+        + '</div></div>';
+    }).join('');
+  } catch(e) { console.error('loadSshServices', e); }
+}
+
+async function openSshServiceModal(id) {
+  id = id || null;
+  ['ssh-svc-name','ssh-svc-host','ssh-svc-username','ssh-svc-password','ssh-svc-service'].forEach(
+    function(x){ document.getElementById(x).value = ''; }
+  );
+  document.getElementById('ssh-svc-id').value       = '';
+  document.getElementById('ssh-svc-port').value     = '22';
+  document.getElementById('ssh-svc-interval').value = '60';
+  document.getElementById('ssh-svc-enabled').checked = true;
+  document.getElementById('ssh-svc-error').style.display      = 'none';
+  document.getElementById('ssh-svc-delete-btn').style.display = 'none';
+  document.getElementById('ssh-svc-edit-extra').style.display = 'none';
+  document.getElementById('sshServiceModalTitle').innerHTML =
+    '<i class="bi bi-terminal me-2 text-warning"></i>Linux-Dienst hinzufuegen';
+  if (id) {
+    try {
+      const all = await (await fetch('/api/ssh-services')).json();
+      const m = all.find(function(x){ return x.id === id; });
+      if (m) {
+        document.getElementById('ssh-svc-id').value       = m.id;
+        document.getElementById('ssh-svc-name').value     = m.name;
+        document.getElementById('ssh-svc-host').value     = m.host;
+        document.getElementById('ssh-svc-port').value     = m.port;
+        document.getElementById('ssh-svc-username').value = m.username;
+        document.getElementById('ssh-svc-service').value  = m.service_name;
+        document.getElementById('ssh-svc-interval').value = m.check_interval;
+        document.getElementById('ssh-svc-enabled').checked = !!m.enabled;
+        document.getElementById('ssh-svc-delete-btn').style.display = '';
+        document.getElementById('ssh-svc-edit-extra').style.display = '';
+        document.getElementById('sshServiceModalTitle').innerHTML =
+          '<i class="bi bi-terminal me-2 text-warning"></i>' + escHtml(m.name) + ' bearbeiten';
+      }
+    } catch(e) { console.error(e); }
+  }
+  new bootstrap.Modal(document.getElementById('sshServiceModal')).show();
+}
+
+async function saveSshService() {
+  const errEl = document.getElementById('ssh-svc-error');
+  errEl.style.display = 'none';
+  const id = document.getElementById('ssh-svc-id').value;
+  const payload = {
+    name:           document.getElementById('ssh-svc-name').value.trim(),
+    host:           document.getElementById('ssh-svc-host').value.trim(),
+    port:           parseInt(document.getElementById('ssh-svc-port').value) || 22,
+    username:       document.getElementById('ssh-svc-username').value.trim(),
+    password:       document.getElementById('ssh-svc-password').value,
+    service_name:   document.getElementById('ssh-svc-service').value.trim(),
+    check_interval: parseInt(document.getElementById('ssh-svc-interval').value) || 60,
+    enabled:        document.getElementById('ssh-svc-enabled').checked,
+  };
+  if (!payload.name || !payload.host || !payload.username || !payload.service_name) {
+    errEl.textContent = 'Name, Host, Benutzername und Dienst sind Pflichtfelder.';
+    errEl.style.display = '';
+    return;
+  }
+  try {
+    const url    = id ? '/api/ssh-services/' + id : '/api/ssh-services';
+    const method = id ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(function(){ return {}; });
+      errEl.textContent = d.detail || 'Fehler beim Speichern.';
+      errEl.style.display = '';
+      return;
+    }
+    const modal = bootstrap.Modal.getInstance(document.getElementById('sshServiceModal'));
+    if (modal) modal.hide();
+    loadSshServices();
+  } catch(e) {
+    errEl.textContent = 'Netzwerkfehler: ' + e.message;
+    errEl.style.display = '';
+  }
+}
+
+async function deleteSshService() {
+  const id = document.getElementById('ssh-svc-id').value;
+  if (!id || !confirm('Dienst-Monitor wirklich loeschen?')) return;
+  await fetch('/api/ssh-services/' + id, { method: 'DELETE' });
+  const modal = bootstrap.Modal.getInstance(document.getElementById('sshServiceModal'));
+  if (modal) modal.hide();
+  loadSshServices();
+}
+
+async function showSshHistory(id, name) {
+  document.getElementById('sshHistoryTitle').innerHTML =
+    '<i class="bi bi-clock-history me-2 text-warning"></i>' + escHtml(name) + ' \u2013 Verlauf';
+  document.getElementById('ssh-history-body').innerHTML =
+    '<div class="text-center text-muted py-3">Lade...</div>';
+  new bootstrap.Modal(document.getElementById('sshServiceHistoryModal')).show();
+  try {
+    const rows = await (await fetch('/api/ssh-services/' + id + '/history')).json();
+    if (!rows.length) {
+      document.getElementById('ssh-history-body').innerHTML =
+        '<div class="text-center text-muted py-3 small">Noch keine Eintraege.</div>';
+      return;
+    }
+    let html = '<table class="table table-sm table-dark table-hover mb-0" style="font-size:.78rem">'
+      + '<thead class="sticky-top bg-dark"><tr>'
+      + '<th class="ps-3">Zeitstempel</th><th>Status</th><th>Antwortzeit</th><th class="pe-3">Ausgabe</th>'
+      + '</tr></thead><tbody>';
+    rows.forEach(function(row) {
+      const color = SSH_STATUS_COLOR[row.status] || SSH_STATUS_COLOR.unknown;
+      const label = SSH_STATUS_LABEL[row.status] || row.status;
+      html += '<tr>'
+        + '<td class="ps-3 text-muted">' + fmtDate(row.timestamp) + '</td>'
+        + '<td><span class="badge" style="background:' + color + '22;color:' + color + '">' + label + '</span></td>'
+        + '<td class="text-muted">' + (row.response_ms != null ? row.response_ms + ' ms' : '\u2013') + '</td>'
+        + '<td class="pe-3 text-muted text-truncate" style="max-width:200px" title="' + escHtml(row.output || '') + '">'
+        + escHtml(row.output || '\u2013') + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('ssh-history-body').innerHTML = html;
+  } catch(e) {
+    document.getElementById('ssh-history-body').innerHTML =
+      '<div class="text-danger text-center py-3 small">Fehler: ' + escHtml(e.message) + '</div>';
+  }
+}

@@ -1488,3 +1488,103 @@ def get_netflow_top_talkers(hours: int = 24, limit: int = 10) -> dict:
             "total_octets": r["total_octets"], "pct_above_avg": pct,
         })
     return {"talkers": talkers, "avg_octets": round(avg_octets, 0), "hours": hours}
+
+
+# ── SSH Service Monitors ───────────────────────────────────────
+
+def get_ssh_service_monitors(enabled_only: bool = False) -> list[dict]:
+    with get_db() as db:
+        q = "SELECT * FROM ssh_service_monitors"
+        if enabled_only:
+            q += " WHERE enabled=1"
+        q += " ORDER BY name"
+        return rows_to_list(db.execute(q).fetchall())
+
+
+def get_ssh_service_monitor(monitor_id: int) -> dict | None:
+    with get_db() as db:
+        row = db.execute(
+            "SELECT * FROM ssh_service_monitors WHERE id=?", (monitor_id,)
+        ).fetchone()
+        return row_to_dict(row) if row else None
+
+
+def create_ssh_service_monitor(name: str, host: str, port: int, username: str,
+                                password: str, service_name: str,
+                                check_interval: int) -> dict:
+    with get_db() as db:
+        db.execute(
+            """INSERT INTO ssh_service_monitors
+               (name, host, port, username, password, service_name, check_interval)
+               VALUES (?,?,?,?,?,?,?)""",
+            (name, host, port, username, password, service_name, check_interval),
+        )
+        row = db.execute(
+            "SELECT * FROM ssh_service_monitors WHERE id=last_insert_rowid()"
+        ).fetchone()
+        return row_to_dict(row)
+
+
+def update_ssh_service_monitor(monitor_id: int, name: str, host: str, port: int,
+                                username: str, password: str, service_name: str,
+                                check_interval: int, enabled: int):
+    with get_db() as db:
+        db.execute(
+            """UPDATE ssh_service_monitors
+               SET name=?, host=?, port=?, username=?, password=?,
+                   service_name=?, check_interval=?, enabled=?
+               WHERE id=?""",
+            (name, host, port, username, password, service_name,
+             check_interval, enabled, monitor_id),
+        )
+
+
+def delete_ssh_service_monitor(monitor_id: int):
+    with get_db() as db:
+        db.execute("DELETE FROM ssh_service_monitors WHERE id=?", (monitor_id,))
+
+
+def update_ssh_service_status(monitor_id: int, status: str,
+                               output: str, response_ms: float):
+    now = datetime.utcnow().isoformat()
+    with get_db() as db:
+        if status == "active":
+            db.execute(
+                """UPDATE ssh_service_monitors
+                   SET last_status=?, last_output=?, last_check=?,
+                       consecutive_failures=0
+                   WHERE id=?""",
+                (status, output, now, monitor_id),
+            )
+        else:
+            db.execute(
+                """UPDATE ssh_service_monitors
+                   SET last_status=?, last_output=?, last_check=?,
+                       consecutive_failures = consecutive_failures + 1
+                   WHERE id=?""",
+                (status, output, now, monitor_id),
+            )
+        db.execute(
+            """INSERT INTO ssh_service_history
+               (monitor_id, timestamp, status, output, response_ms)
+               VALUES (?,?,?,?,?)""",
+            (monitor_id, now, status, output, response_ms),
+        )
+
+
+def get_ssh_service_history(monitor_id: int, limit: int = 50) -> list[dict]:
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT * FROM ssh_service_history
+               WHERE monitor_id=? ORDER BY timestamp DESC LIMIT ?""",
+            (monitor_id, limit),
+        ).fetchall()
+        return rows_to_list(rows)
+
+
+def prune_ssh_service_history(days: int = 30):
+    with get_db() as db:
+        db.execute(
+            "DELETE FROM ssh_service_history WHERE timestamp < datetime('now', ?)",
+            (f"-{days} days",),
+        )

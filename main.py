@@ -15,6 +15,7 @@ from app.monitoring.syslog_collector import start_syslog_collector
 from app.monitoring.trap_collector import start_trap_collector
 from app.routers import auth_routes, device_routes, topology_routes, metric_routes
 from app.routers import user_routes, settings_routes, url_monitor_routes, maintenance_routes, report_routes, widget_routes
+from app.routers import ssh_service_routes
 from app.templates_config import templates  # noqa: F401 – registers filters
 
 # Ensure required directories exist
@@ -40,6 +41,7 @@ app.include_router(url_monitor_routes.router)
 app.include_router(maintenance_routes.router)
 app.include_router(report_routes.router)
 app.include_router(widget_routes.router)
+app.include_router(ssh_service_routes.router)
 
 
 @app.on_event("startup")

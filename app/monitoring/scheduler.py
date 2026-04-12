@@ -18,6 +18,7 @@ from app.monitoring.ssh_check import ssh_check
 from app.monitoring.wmi_check import collect_wmi
 from app.monitoring.snmp_check import collect_snmp_template
 from app.monitoring.dns_check import dns_check
+from app.monitoring.ssh_service_check import ssh_service_check
 
 log = logging.getLogger(__name__)
 _scheduler: Optional[BackgroundScheduler] = None
@@ -661,6 +662,68 @@ def _check_avg_notifications():
         log.warning("_check_avg_notifications error: %s", exc)
 
 
+def _run_ssh_service(monitor_id: int):
+    monitor = crud.get_ssh_service_monitor(monitor_id)
+    if not monitor or not monitor["enabled"]:
+        return
+    result = ssh_service_check(
+        monitor["host"], monitor["port"],
+        monitor["username"], monitor["password"],
+        monitor["service_name"],
+    )
+    crud.update_ssh_service_status(
+        monitor_id, result["status"], result["output"], result["response_ms"]
+    )
+    triggered = result["status"] != "active"
+    entity_id  = f"{monitor['host']}:{monitor['service_name']}"
+    if triggered:
+        _evaluate_widget_notification(
+            "ssh_service",
+            triggered=True,
+            subject=f"FoxEx Monitor – Dienst nicht aktiv: {monitor['service_name']} ({monitor['host']})",
+            body_text=(
+                f"Dienst '{monitor['service_name']}' auf {monitor['host']} ist nicht aktiv.\n\n"
+                f"Status:  {result['status']}\n"
+                f"Ausgabe: {result['output']}\n\n"
+                "FoxEx Network Monitor"
+            ),
+            exception_value=entity_id,
+            entity_name=monitor["name"],
+        )
+    else:
+        _evaluate_widget_notification(
+            "ssh_service", triggered=False, exception_value=entity_id
+        )
+    log.debug("SSH-Service %s/%s → %s (%sms)",
+              monitor["host"], monitor["service_name"],
+              result["status"], result["response_ms"])
+
+
+def _schedule_ssh_service_monitor(monitor: dict):
+    if not _scheduler:
+        return
+    _scheduler.add_job(
+        _run_ssh_service,
+        IntervalTrigger(seconds=max(30, monitor["check_interval"])),
+        id=f"ssh_svc_{monitor['id']}",
+        args=[monitor["id"]],
+        replace_existing=True, max_instances=1,
+        next_run_time=datetime.now(timezone.utc),
+    )
+
+
+def schedule_ssh_service_monitor(monitor: dict):
+    _schedule_ssh_service_monitor(monitor)
+
+
+def unschedule_ssh_service_monitor(monitor_id: int):
+    if not _scheduler:
+        return
+    job_id = f"ssh_svc_{monitor_id}"
+    if _scheduler.get_job(job_id):
+        _scheduler.remove_job(job_id)
+
+
 def _prune_metrics():
     """Delete metric_history rows older than 30 days (runs daily)."""
     try:
@@ -705,4 +768,9 @@ def start_scheduler():
     _scheduler.add_job(_prune_syslog, IntervalTrigger(hours=1), id="prune_syslog")
     # Daily SNMP trap pruning
     _scheduler.add_job(_prune_traps, IntervalTrigger(hours=24), id="prune_traps")
-    log.info("Scheduler started. Scheduling %d devices, %d DNS monitors.", len(devices), len(monitors))
+    # SSH service monitors
+    ssh_monitors = crud.get_ssh_service_monitors(enabled_only=True)
+    for m in ssh_monitors:
+        _schedule_ssh_service_monitor(m)
+    log.info("Scheduler started. Scheduling %d devices, %d DNS monitors, %d SSH services.",
+             len(devices), len(monitors), len(ssh_monitors))

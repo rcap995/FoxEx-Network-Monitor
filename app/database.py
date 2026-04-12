@@ -542,3 +542,34 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_snmp_traps_device
                 ON snmp_traps(device_id, received_at);
         """)
+
+        # ── SSH Service Monitors ────────────────────────────────────
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS ssh_service_monitors (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name                 TEXT    NOT NULL,
+                host                 TEXT    NOT NULL,
+                port                 INTEGER DEFAULT 22,
+                username             TEXT    NOT NULL DEFAULT '',
+                password             TEXT    DEFAULT '',
+                service_name         TEXT    NOT NULL,
+                check_interval       INTEGER DEFAULT 60,
+                enabled              INTEGER DEFAULT 1,
+                last_status          TEXT    DEFAULT 'unknown',
+                last_output          TEXT    DEFAULT '',
+                last_check           TEXT,
+                consecutive_failures INTEGER DEFAULT 0,
+                created_at           TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS ssh_service_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                monitor_id  INTEGER NOT NULL REFERENCES ssh_service_monitors(id) ON DELETE CASCADE,
+                timestamp   TEXT    DEFAULT (datetime('now')),
+                status      TEXT    NOT NULL,
+                output      TEXT    DEFAULT '',
+                response_ms REAL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ssh_svc_hist
+                ON ssh_service_history(monitor_id, timestamp);
+        """)

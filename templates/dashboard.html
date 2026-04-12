@@ -397,7 +397,110 @@
   </div>
 </div>
 
+<!-- Widget: Linux-Dienste (SSH) -->
+<div class="dash-widget widget-2col" id="widget-ssh-services" data-widget-id="ssh-services">
+  <div class="widget-drag-handle d-none"><i class="bi bi-grip-vertical text-muted"></i></div>
+  <button class="btn btn-outline-secondary widget-width-btn" onclick="toggleWidgetWidth('ssh-services')" title="Breite ändern">
+    <i class="bi bi-fullscreen"></i>
+  </button>
+  <div class="card border-0 bg-card">
+    <div class="card-header bg-transparent border-secondary py-1 px-2 d-flex justify-content-between align-items-center" style="font-size:.78rem">
+      <span><i class="bi bi-terminal text-warning"></i> Linux-Dienste</span>
+      <div class="d-flex align-items-center gap-2">
+        <span id="ssh-services-count" class="text-muted" style="font-size:.72rem"></span>
+        <button class="btn btn-sm btn-link p-0 alert-badge-btn" id="alert-btn-ssh_service" onclick="openAlertsOverview('ssh_service')" title="Aktive Meldungen" style="display:none"><span class="badge bg-danger rounded-pill" id="alert-cnt-ssh_service" style="font-size:.62rem"></span></button>
+        <button class="btn btn-sm btn-link p-0 notif-bell" onclick="openNotifModal('ssh_service')" title="Benachrichtigungen konfigurieren"><i class="bi bi-envelope text-muted"></i></button>
+        <button class="btn btn-sm btn-link p-0 text-muted" onclick="openSshServiceModal()" title="Dienst hinzufügen"><i class="bi bi-plus-circle"></i></button>
+      </div>
+    </div>
+    <div class="card-body p-0 resizable-body" id="ssh-services-body" style="overflow-y:auto;min-height:60px">
+      <div class="text-center text-muted small py-3">Lade…</div>
+    </div>
+    <div class="widget-resize-handle" data-widget="ssh-services"></div>
+  </div>
+</div>
+
 </div><!-- /widget-container -->
+
+<!-- ── SSH Service Monitor Modal ─────────────────────────────────── -->
+<div class="modal fade" id="sshServiceModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
+    <div class="modal-content bg-dark text-light border-secondary">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title mb-0" id="sshServiceModalTitle"><i class="bi bi-terminal me-2 text-warning"></i>Linux-Dienst überwachen</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ssh-svc-id">
+        <div class="row g-2 mb-2">
+          <div class="col-8">
+            <label class="form-label small mb-1">Anzeigename</label>
+            <input type="text" id="ssh-svc-name" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="z.B. Mail-Server Postfix">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-1">Prüfintervall (s)</label>
+            <input type="number" id="ssh-svc-interval" class="form-control form-control-sm bg-dark text-light border-secondary" value="60" min="30">
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-8">
+            <label class="form-label small mb-1">Host / IP</label>
+            <input type="text" id="ssh-svc-host" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="z.B. 192.168.1.10">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-1">SSH-Port</label>
+            <input type="number" id="ssh-svc-port" class="form-control form-control-sm bg-dark text-light border-secondary" value="22" min="1" max="65535">
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label small mb-1">Benutzername</label>
+            <input type="text" id="ssh-svc-username" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="monitor" autocomplete="off">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-1">Passwort</label>
+            <input type="password" id="ssh-svc-password" class="form-control form-control-sm bg-dark text-light border-secondary" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">Dienst (systemctl-Name)</label>
+          <input type="text" id="ssh-svc-service" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="z.B. postfix, nginx, mysql, sshd">
+          <div class="form-text text-muted" style="font-size:.7rem">Name wie in <code>systemctl is-active &lt;dienst&gt;</code></div>
+        </div>
+        <div id="ssh-svc-edit-extra" style="display:none" class="mt-2">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="ssh-svc-enabled" checked>
+            <label class="form-check-label small" for="ssh-svc-enabled">Überwachung aktiv</label>
+          </div>
+        </div>
+        <div id="ssh-svc-error" class="text-danger small mt-2" style="display:none"></div>
+      </div>
+      <div class="modal-footer border-secondary py-2 d-flex justify-content-between">
+        <button type="button" id="ssh-svc-delete-btn" class="btn btn-sm btn-outline-danger" style="display:none" onclick="deleteSshService()"><i class="bi bi-trash"></i> Löschen</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="button" class="btn btn-sm btn-warning" onclick="saveSshService()"><i class="bi bi-save"></i> Speichern</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SSH Service History Modal ──────────────────────────────────── -->
+<div class="modal fade" id="sshServiceHistoryModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content bg-dark text-light border-secondary">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title mb-0" id="sshHistoryTitle"><i class="bi bi-clock-history me-2 text-warning"></i>Prüfverlauf</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="ssh-history-body" style="max-height:420px;overflow-y:auto">
+        <div class="text-center text-muted py-3">Lade…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Notification Config Modal -->
 <div class="modal fade" id="notifModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
