@@ -695,6 +695,8 @@ document.addEventListener('DOMContentLoaded', () => {
   loadNotes();
   {% if device.icmp_enabled %}loadIcmpAlerts();{% endif %}
   {% if device.syslog_enabled %}loadSyslog();{% endif %}
+  // Templates vorladen, damit das Bearbeiten-Modal sofort bereit ist
+  _fetchTemplates();
 });
 
 // ── SNMP Metriken (template-basiert) ──────────────────────────
@@ -885,14 +887,25 @@ async function deleteAllAlerts() {
 }
 
 // ── Template multi-select helpers ────────────────────────────
+let _tplCache = null;
+let _tplCachePromise = null;
+
+async function _fetchTemplates() {
+  if (_tplCache !== null) return _tplCache;
+  if (_tplCachePromise) return _tplCachePromise;
+  _tplCachePromise = fetch('/api/snmp/templates')
+    .then(r => r.ok ? r.json() : [])
+    .then(data => { _tplCache = data; _tplCachePromise = null; return data; })
+    .catch(() => { _tplCachePromise = null; return []; });
+  return _tplCachePromise;
+}
+
 async function loadTplChecks(containerId, selectedIds) {
   const el = document.getElementById(containerId);
   if (!el) return;
-  el.innerHTML = '<div class="text-muted small ps-1">Lade…</div>';
+  if (_tplCache === null) el.innerHTML = '<div class="text-muted small ps-1">Lade…</div>';
   try {
-    const r = await fetch('/api/snmp/templates');
-    if (!r.ok) return;
-    const templates = await r.json();
+    const templates = await _fetchTemplates();
     if (!templates.length) {
       el.innerHTML = '<div class="text-muted small ps-1">Keine Templates – erst unter Einstellungen → Protokolle erstellen.</div>';
       return;
@@ -1232,12 +1245,19 @@ document.getElementById('editDeviceForm').addEventListener('submit', async (e) =
     return;
   }
   fd.set('snmp_template_ids', tplIds.join(','));
+  const saveBtn = document.querySelector('#editDeviceModal [type="submit"]');
+  const origLabel = saveBtn.innerHTML;
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Speichert…';
   const r = await fetch(`/api/devices/${DEVICE_ID}`, { method: 'PUT', body: fd });
+  saveBtn.disabled = false;
+  saveBtn.innerHTML = origLabel;
   if (r.ok) {
     bootstrap.Modal.getInstance(document.getElementById('editDeviceModal')).hide();
     location.reload();
   } else {
-    alert('Fehler beim Speichern');
+    const err = await r.text().catch(() => '');
+    alert('Fehler beim Speichern' + (r.status ? ` (${r.status})` : '') + (err ? `:\n${err.substring(0,200)}` : ''));
   }
 });
 
