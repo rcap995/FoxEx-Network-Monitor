@@ -444,8 +444,8 @@
         <h5 class="modal-title"><i class="bi bi-pencil text-warning"></i> Gerät bearbeiten</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
+      <div class="modal-body">
       <form id="editDeviceForm">
-        <div class="modal-body">
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label">Name *</label>
@@ -607,12 +607,12 @@
               <input type="text" name="syslog_source_ip" class="form-control" value="{{ device.syslog_source_ip or '' }}" placeholder="z.B. 10.10.100.1">
             </div>
           </div>
-        </div>
-        <div class="modal-footer border-secondary">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
-          <button type="submit" class="btn btn-warning fw-bold">Änderungen speichern</button>
-        </div>
       </form>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="submit" form="editDeviceForm" class="btn btn-warning fw-bold">Änderungen speichern</button>
+      </div>
     </div>
   </div>
 </div>
