@@ -81,11 +81,12 @@ def init_db():
             );
 
             CREATE TABLE IF NOT EXISTS device_notes (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_id   INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-                title       TEXT    NOT NULL,
-                content     TEXT    DEFAULT '',
-                created_at  TEXT    DEFAULT (datetime('now'))
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id         INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+                title             TEXT    NOT NULL,
+                content           TEXT    DEFAULT '',
+                is_operator_note  INTEGER DEFAULT 0,
+                created_at        TEXT    DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS metric_history (
@@ -573,3 +574,9 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_ssh_svc_hist
                 ON ssh_service_history(monitor_id, timestamp);
         """)
+
+        # Migration: add is_operator_note column to device_notes if missing
+        note_cols = [r[1] for r in conn.execute("PRAGMA table_info(device_notes)").fetchall()]
+        if "is_operator_note" not in note_cols:
+            conn.execute("ALTER TABLE device_notes ADD COLUMN is_operator_note INTEGER DEFAULT 0")
+            conn.commit()

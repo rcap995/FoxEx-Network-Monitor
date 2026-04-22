@@ -241,20 +241,26 @@ def update_device_icon(device_id: int, icon_name: str):
 
 # ── Device Notes ──────────────────────────────────────────────
 
-def get_notes(device_id: int) -> list[dict]:
+def get_notes(device_id: int, include_operator: bool = True) -> list[dict]:
     with get_db() as db:
-        rows = db.execute(
-            "SELECT * FROM device_notes WHERE device_id=? ORDER BY created_at DESC",
-            (device_id,),
-        ).fetchall()
+        if include_operator:
+            rows = db.execute(
+                "SELECT * FROM device_notes WHERE device_id=? ORDER BY created_at DESC",
+                (device_id,),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT * FROM device_notes WHERE device_id=? AND is_operator_note=0 ORDER BY created_at DESC",
+                (device_id,),
+            ).fetchall()
         return rows_to_list(rows)
 
 
-def create_note(device_id: int, title: str, content: str) -> dict:
+def create_note(device_id: int, title: str, content: str, is_operator_note: bool = False) -> dict:
     with get_db() as db:
         db.execute(
-            "INSERT INTO device_notes (device_id, title, content) VALUES (?,?,?)",
-            (device_id, title, content),
+            "INSERT INTO device_notes (device_id, title, content, is_operator_note) VALUES (?,?,?,?)",
+            (device_id, title, content, 1 if is_operator_note else 0),
         )
         row = db.execute(
             "SELECT * FROM device_notes WHERE id=last_insert_rowid()"

@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from app.templates_config import templates
 
 from app import crud
-from app.auth import require_operator
+from app.auth import require_operator, _get_session_user, _ROLE_RANK
 from app.config import DEVICE_TYPES, UPLOAD_DIR
 from app.monitoring.scheduler import schedule_device, unschedule_device, run_device_check
 from app.monitoring.http_check import http_check
@@ -44,6 +44,7 @@ def device_detail_page(device_id: int, request: Request):
     recent_icmp = crud.get_metrics(device_id, "icmp_latency", hours=24, limit=100)
     latest_metrics = crud.get_latest_metrics(device_id)
     template_ids = crud.get_device_template_ids(device_id)
+    user = _get_session_user(request)
     return templates.TemplateResponse("device_detail.html", {
         "request": request,
         "device": device,
@@ -52,6 +53,7 @@ def device_detail_page(device_id: int, request: Request):
         "latest_metrics": latest_metrics,
         "username": request.session.get("username"),
         "template_ids": template_ids,
+        "user_role": user.get("role", "user"),
     })
 
 
@@ -219,16 +221,24 @@ def api_delete_device(device_id: int, request: Request):
 @router.get("/api/devices/{device_id}/notes")
 def api_get_notes(device_id: int, request: Request):
     _check(request)
-    return crud.get_notes(device_id)
+    user = _get_session_user(request)
+    is_operator_or_above = _ROLE_RANK.get(user.get("role", "user"), 0) >= _ROLE_RANK["operator"]
+    return crud.get_notes(device_id, include_operator=is_operator_or_above)
 
 
 @router.post("/api/devices/{device_id}/notes")
 def api_create_note(
     device_id: int, request: Request,
     title: str = Form(...), content: str = Form(""),
+    is_operator_note: int = Form(0),
 ):
-    require_operator(request)
-    note = crud.create_note(device_id, title, content)
+    _check(request)
+    user = _get_session_user(request)
+    is_op = _ROLE_RANK.get(user.get("role", "user"), 0) >= _ROLE_RANK["operator"]
+    # Operator-Notizen dürfen nur von Operator/Admin erstellt werden
+    if is_operator_note and not is_op:
+        raise HTTPException(status_code=403, detail="Unzureichende Berechtigung für Operator-Notiz")
+    note = crud.create_note(device_id, title, content, is_operator_note=bool(is_operator_note))
     return {"id": note["id"], "title": note["title"]}
 
 

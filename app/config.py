@@ -23,5 +23,6 @@ DEVICE_TYPES = [
     ("nas",          "NAS / Storage"),
     ("printer",      "Drucker"),
     ("camera",       "IP-Kamera"),
+    ("vm",           "VM"),
     ("generic",      "Generisch"),
 ]

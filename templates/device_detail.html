@@ -392,6 +392,8 @@
         <div class="text-muted text-center py-3">Lade Notizen...</div>
       </div>
     </div>
+    <!-- operator-note toggle visibility flag for JS -->
+    <span id="user-role-flag" data-role="{{ user_role }}" class="d-none"></span>
   </div>
 </div>
 
@@ -413,6 +415,17 @@
             <label class="form-label">Inhalt</label>
             <textarea name="content" class="form-control" rows="4" placeholder="Inhalt der Notiz..."></textarea>
           </div>
+          {% if user_role in ['operator', 'admin'] %}
+          <div class="mb-0">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="is_operator_note" id="chkOperatorNote" value="1">
+              <label class="form-check-label" for="chkOperatorNote">
+                <i class="bi bi-shield-lock text-warning"></i> Operator-Notiz
+                <small class="text-muted d-block">Nur für Operator und Admin sichtbar</small>
+              </label>
+            </div>
+          </div>
+          {% endif %}
         </div>
         <div class="modal-footer border-secondary">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
@@ -591,7 +604,7 @@
             </div>
             <div class="col-md-4">
               <label class="form-label">Quell-IP <small class="text-muted">(optional, falls abweichend)</small></label>
-              <input type="text" name="syslog_source_ip" class="form-control" value="{{ device.syslog_source_ip or '' }}" placeholder="z.B. 192.168.1.100">
+              <input type="text" name="syslog_source_ip" class="form-control" value="{{ device.syslog_source_ip or '' }}" placeholder="z.B. 10.10.100.1">
             </div>
           </div>
         </div>
@@ -653,6 +666,7 @@
 <script>
 const DEVICE_ID = {{ device.id }};
 const SNMP_TEMPLATE_IDS = [{% for tid in template_ids %}{{ tid }}{% if not loop.last %},{% endif %}{% endfor %}];
+const USER_ROLE = "{{ user_role }}";
 let latencyChart = null;
 
 // All 13 SNMP metrics definition (mirrors snmp_check.py)
@@ -1036,6 +1050,8 @@ async function loadLatencyChart() {
 }
 
 // ── Notes ─────────────────────────────────────────────────────
+const _IS_OP = ['operator','admin'].includes(USER_ROLE);
+
 async function loadNotes() {
   const r = await fetch(`/api/devices/${DEVICE_ID}/notes`);
   const notes = await r.json();
@@ -1044,25 +1060,33 @@ async function loadNotes() {
     container.innerHTML = '<p class="text-muted text-center mb-0">Noch keine Notizen.</p>';
     return;
   }
-  container.innerHTML = notes.map(n => `
-    <div class="card bg-dark border-secondary mb-2">
+  container.innerHTML = notes.map(n => {
+    const isOp = n.is_operator_note == 1;
+    const badge = isOp
+      ? `<span class="badge bg-warning text-dark ms-2" title="Nur für Operator/Admin sichtbar"><i class="bi bi-shield-lock"></i> Operator</span>`
+      : '';
+    const delBtn = _IS_OP
+      ? `<button class="btn btn-sm btn-link text-danger p-0 ms-2" onclick="deleteNote(${n.id})"><i class="bi bi-trash"></i></button>`
+      : '';
+    return `
+    <div class="card bg-dark border-${isOp ? 'warning' : 'secondary'} mb-2">
       <div class="card-body py-2 px-3">
         <div class="d-flex justify-content-between align-items-start">
-          <strong class="small">${escHtml(n.title)}</strong>
-          <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteNote(${n.id})">
-            <i class="bi bi-trash"></i>
-          </button>
+          <div><strong class="small">${escHtml(n.title)}</strong>${badge}</div>
+          ${delBtn}
         </div>
         <pre class="mb-0 mt-1 text-muted small" style="white-space:pre-wrap">${escHtml(n.content)}</pre>
         <div class="text-muted" style="font-size:0.7rem">${new Date(n.created_at).toLocaleString('de-DE')}</div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 document.getElementById('addNoteForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
+  // checkbox nicht angehakt → Wert fehlt in FormData → als 0 senden
+  if (!fd.has('is_operator_note')) fd.append('is_operator_note', '0');
   const r = await fetch(`/api/devices/${DEVICE_ID}/notes`, { method: 'POST', body: fd });
   if (r.ok) {
     bootstrap.Modal.getInstance(document.getElementById('addNoteModal')).hide();
